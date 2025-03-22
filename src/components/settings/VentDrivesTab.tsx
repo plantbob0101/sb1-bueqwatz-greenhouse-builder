@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Loader2, Edit2, Trash2, X, Save } from 'lucide-react';
+import { Plus, Loader2, Edit2, Trash2, X } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
 interface VentDrive {
@@ -37,6 +37,8 @@ export default function VentDrivesTab() {
     motor_specifications: '',
     compatible_structures: []
   });
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   useEffect(() => {
     loadDrives();
@@ -94,21 +96,47 @@ export default function VentDrivesTab() {
   };
 
   const handleDelete = async (driveId: string) => {
-    if (!window.confirm('Are you sure you want to delete this vent drive?')) {
-      return;
-    }
+    setPendingDeleteId(driveId);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDeleteId) return;
 
     try {
+      // Check auth state
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      if (authError) {
+        setError('Authentication error: ' + authError.message);
+        return;
+      }
+      if (!session) {
+        setError('You must be logged in to delete items');
+        return;
+      }
+
       const { error } = await supabase
         .from('vent_drives')
         .delete()
-        .eq('drive_id', driveId);
+        .eq('drive_id', pendingDeleteId);
 
-      if (error) throw error;
+      if (error) {
+        setError(`Failed to delete: ${error.message}`);
+        return;
+      }
+
       await loadDrives();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete vent drive');
+    } finally {
+      setShowDeleteConfirm(false);
+      setPendingDeleteId(null);
     }
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setPendingDeleteId(null);
   };
 
   const handleEdit = (drive: VentDrive) => {
@@ -127,6 +155,29 @@ export default function VentDrivesTab() {
 
   return (
     <div className="space-y-6">
+      {showDeleteConfirm && (
+        <div className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 flex items-center justify-center" style={{ zIndex: 9999 }}>
+          <div className="relative bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4 text-gray-900">Confirm Delete</h3>
+            <p className="mb-6 text-gray-700">Are you sure you want to delete this vent drive?</p>
+            <div className="flex justify-end space-x-4">
+              <button
+                onClick={cancelDelete}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800 bg-gray-100 rounded"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-end">
         <button
           onClick={() => {

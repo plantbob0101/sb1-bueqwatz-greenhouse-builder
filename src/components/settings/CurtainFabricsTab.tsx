@@ -9,7 +9,7 @@ interface CurtainFabric {
   energy_savings: number;
   shade_percentage: number;
   ventilation_reduction: number;
-  width_size: number;
+  width_size: number[];
   price_0_5000: number;
   price_5000_20000: number;
   price_20000_plus: number;
@@ -34,14 +34,33 @@ export default function CurtainFabricsTab() {
     shade_percentage: 0,
     energy_savings: 0,
     ventilation_reduction: 0,
-    width_size: [] as number[],
+    width_size: [],
     price_0_5000: 0,
     price_5000_20000: 0,
     price_20000_plus: 0
   });
+  const [debugInfo, setDebugInfo] = useState<string[]>([]);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  const addDebugInfo = (info: string) => {
+    setDebugInfo(prev => [...prev, `${new Date().toISOString()}: ${info}`].slice(-5));
+  };
 
   useEffect(() => {
-    loadFabrics();
+    const init = async () => {
+      addDebugInfo('Component mounted - Debug panel test');
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error) {
+        addDebugInfo(`Auth Error: ${error.message}`);
+      } else if (session) {
+        addDebugInfo(`Logged in as: ${session.user.email}`);
+      } else {
+        addDebugInfo('No active session');
+      }
+      loadFabrics();
+    };
+    init();
   }, []);
 
   async function loadFabrics() {
@@ -53,6 +72,7 @@ export default function CurtainFabricsTab() {
 
       if (error) throw error;
       setFabrics(data || []);
+      console.log('Loaded fabrics:', data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load curtain fabrics');
     } finally {
@@ -85,11 +105,11 @@ export default function CurtainFabricsTab() {
       setEditingFabric(null);
       setFormData({
         fabric_name: '',
-        fabric_type: 'Insect Screen',
+        fabric_type: 'Shade',
         energy_savings: 0,
         shade_percentage: 0,
         ventilation_reduction: 0,
-        width_size: 0,
+        width_size: [],
         price_0_5000: 0,
         price_5000_20000: 0,
         price_20000_plus: 0
@@ -100,21 +120,58 @@ export default function CurtainFabricsTab() {
   };
 
   const handleDelete = async (fabricId: string) => {
-    if (!window.confirm('Are you sure you want to delete this curtain fabric?')) {
-      return;
-    }
+    addDebugInfo('Delete button clicked');
+    setPendingDeleteId(fabricId);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDeleteId) return;
 
     try {
+      addDebugInfo('Delete confirmed by user');
+      // Check auth state
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      if (authError) {
+        addDebugInfo(`Auth error: ${authError.message}`);
+        setError('Authentication error: ' + authError.message);
+        return;
+      }
+      if (!session) {
+        addDebugInfo('No active session');
+        setError('You must be logged in to delete items');
+        return;
+      }
+      addDebugInfo(`Active session: ${session.user.email}`);
+
+      addDebugInfo(`Attempting to delete fabric: ${pendingDeleteId}`);
       const { error } = await supabase
         .from('curtain_fabrics')
         .delete()
-        .eq('fabric_id', fabricId);
+        .eq('fabric_id', pendingDeleteId);
 
-      if (error) throw error;
+      if (error) {
+        addDebugInfo(`Delete error: ${error.message}`);
+        setError(`Failed to delete: ${error.message}`);
+        return;
+      }
+
+      addDebugInfo('Delete successful');
       await loadFabrics();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete curtain fabric');
+      const message = err instanceof Error ? err.message : 'Failed to delete curtain fabric';
+      addDebugInfo(`Error: ${message}`);
+      setError(message);
+    } finally {
+      setShowDeleteConfirm(false);
+      setPendingDeleteId(null);
     }
+  };
+
+  const cancelDelete = () => {
+    addDebugInfo('Delete cancelled by user');
+    setShowDeleteConfirm(false);
+    setPendingDeleteId(null);
   };
 
   const handleEdit = (fabric: CurtainFabric) => {
@@ -133,6 +190,40 @@ export default function CurtainFabricsTab() {
 
   return (
     <div className="space-y-6">
+      <div className="mt-4 p-4 bg-red-100 rounded-lg">
+        <h3 className="font-semibold mb-2">Debug Panel (Always Visible)</h3>
+        {debugInfo.length === 0 ? (
+          <div className="text-sm font-mono">No debug information yet</div>
+        ) : (
+          debugInfo.map((info, i) => (
+            <div key={i} className="text-sm font-mono">{info}</div>
+          ))
+        )}
+      </div>
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg shadow-xl">
+            <h3 className="text-lg font-semibold mb-4">Confirm Delete</h3>
+            <p className="mb-6">Are you sure you want to delete this curtain fabric?</p>
+            <div className="flex justify-end space-x-4">
+              <button
+                onClick={cancelDelete}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-end">
         <button
           onClick={() => {
@@ -143,7 +234,7 @@ export default function CurtainFabricsTab() {
               energy_savings: 0,
               shade_percentage: 0,
               ventilation_reduction: 0,
-              width_size: [] as number[],
+              width_size: [],
               price_0_5000: 0,
               price_5000_20000: 0,
               price_20000_plus: 0
@@ -264,27 +355,57 @@ export default function CurtainFabricsTab() {
                 <label className="block text-sm font-medium text-gray-300 mb-1">
                   Width Size (ft)
                 </label>
-                <input
-                  type="text"
-                  value={formData.width_size?.join(', ') || ''}
-                  onChange={(e) => {
-                    const input = e.target.value;
-                    setFormData(prev => ({
-                      ...prev,
-                      width_size: input === '' ? [] : input.split(',')
-                        .map(v => v.trim())
-                        .filter(v => v !== '')
-                        .map(v => {
-                          const num = parseFloat(v);
-                          return isNaN(num) ? null : num;
-                        })
-                        .filter((v): v is number => v !== null)
-                    }));
-                  }}
-                  placeholder="Enter widths separated by commas (e.g., 11.8, 13.7)"
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
+                <div className="space-y-2">
+                  {formData.width_size?.map((width, index) => (
+                    <div key={index} className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        value={width}
+                        onChange={(e) => {
+                          const newValue = parseFloat(e.target.value) || 0;
+                          const newWidths = [...(formData.width_size || [])];
+                          newWidths[index] = Number(newValue.toFixed(2));
+                          setFormData(prev => ({
+                            ...prev,
+                            width_size: newWidths
+                          }));
+                        }}
+                        min={0}
+                        step={0.1}
+                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const newWidths = formData.width_size?.filter((_, i) => i !== index) || [];
+                          setFormData(prev => ({
+                            ...prev,
+                            width_size: newWidths
+                          }));
+                        }}
+                        className="p-2 text-gray-400 hover:text-white"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData(prev => ({
+                        ...prev,
+                        width_size: [...(prev.width_size || []), 0]
+                      }));
+                    }}
+                    className="flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:text-white"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Add Width Size
+                  </button>
+                </div>
+                <p className="mt-1 text-sm text-gray-400">
+                  Click "Add Width Size" to add a new width value. Each width can have up to 2 decimal places.
+                </p>
               </div>
 
               <div>

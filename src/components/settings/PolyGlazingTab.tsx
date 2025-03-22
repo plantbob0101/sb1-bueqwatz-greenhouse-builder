@@ -31,9 +31,28 @@ export default function PolyGlazingTab() {
     price_401_2000lbs: 0.0,
     price_2000lbs_plus: 0.0
   });
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [debugInfo, setDebugInfo] = useState<string[]>([]);
+
+  const addDebugInfo = (info: string) => {
+    setDebugInfo(prev => [...prev, `${new Date().toISOString()}: ${info}`].slice(-5));
+  };
 
   useEffect(() => {
-    loadCompanies();
+    const init = async () => {
+      addDebugInfo('Component mounted - Debug panel test');
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error) {
+        addDebugInfo(`Auth Error: ${error.message}`);
+      } else if (session) {
+        addDebugInfo(`Logged in as: ${session.user.email}`);
+      } else {
+        addDebugInfo('No active session');
+      }
+      loadCompanies();
+    };
+    init();
   }, []);
 
   async function loadCompanies() {
@@ -101,21 +120,56 @@ export default function PolyGlazingTab() {
   };
 
   const handleDelete = async (companyId: string) => {
-    if (!window.confirm('Are you sure you want to delete this company?')) {
-      return;
-    }
+    addDebugInfo('Delete button clicked');
+    setPendingDeleteId(companyId);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!pendingDeleteId) return;
 
     try {
+      addDebugInfo('Delete confirmed by user');
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      if (authError) {
+        addDebugInfo(`Auth error: ${authError.message}`);
+        setError('Authentication error: ' + authError.message);
+        return;
+      }
+      if (!session) {
+        addDebugInfo('No active session');
+        setError('You must be logged in to delete items');
+        return;
+      }
+      addDebugInfo(`Active session: ${session.user.email}`);
+
+      addDebugInfo(`Attempting to delete company: ${pendingDeleteId}`);
       const { error } = await supabase
         .from('glazing_companies_poly')
         .delete()
-        .eq('company_id', companyId);
+        .eq('company_id', pendingDeleteId);
 
-      if (error) throw error;
+      if (error) {
+        addDebugInfo(`Delete error: ${error.message}`);
+        setError(`Failed to delete: ${error.message}`);
+        return;
+      }
+
+      addDebugInfo('Delete successful');
       await loadCompanies();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete company');
+      const message = err instanceof Error ? err.message : 'Failed to delete poly glazing company';
+      addDebugInfo(`Error: ${message}`);
+      setError(message);
+    } finally {
+      setShowDeleteConfirm(false);
+      setPendingDeleteId(null);
     }
+  };
+
+  const cancelDelete = () => {
+    setShowDeleteConfirm(false);
+    setPendingDeleteId(null);
   };
 
   const handleEdit = (company: PolyCompany) => {
@@ -134,6 +188,41 @@ export default function PolyGlazingTab() {
 
   return (
     <div className="space-y-6">
+      {/* Debug Panel */}
+      <div className="mt-4 p-4 bg-red-100 rounded-lg">
+        <h3 className="font-semibold mb-2 text-gray-900">Debug Panel (Always Visible)</h3>
+        {debugInfo.length === 0 ? (
+          <div className="text-sm font-mono text-gray-700">No debug information yet</div>
+        ) : (
+          debugInfo.map((info, i) => (
+            <div key={i} className="text-sm font-mono text-gray-700">{info}</div>
+          ))
+        )}
+      </div>
+
+      {showDeleteConfirm && (
+        <div className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 flex items-center justify-center" style={{ zIndex: 9999 }}>
+          <div className="relative bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4 text-gray-900">Confirm Delete</h3>
+            <p className="mb-6 text-gray-700">Are you sure you want to delete this poly glazing company?</p>
+            <div className="flex justify-end space-x-4">
+              <button
+                onClick={cancelDelete}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800 bg-gray-100 rounded"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-end">
         <button
           onClick={() => {
@@ -267,7 +356,7 @@ export default function PolyGlazingTab() {
                   value={formData.price_400lbs_less}
                   onChange={(e) => setFormData(prev => ({ ...prev, price_400lbs_less: e.target.value ? parseFloat(e.target.value) : 0 }))}
                   min={0}
-                  step={0.001}
+                  step={0.003}
                   required
                   className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
@@ -282,7 +371,7 @@ export default function PolyGlazingTab() {
                   value={formData.price_401_2000lbs}
                   onChange={(e) => setFormData(prev => ({ ...prev, price_401_2000lbs: e.target.value ? parseFloat(e.target.value) : 0 }))}
                   min={0}
-                  step={0.001}
+                  step={0.003}
                   required
                   className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
@@ -297,7 +386,7 @@ export default function PolyGlazingTab() {
                   value={formData.price_2000lbs_plus}
                   onChange={(e) => setFormData(prev => ({ ...prev, price_2000lbs_plus: e.target.value ? parseFloat(e.target.value) : 0 }))}
                   min={0}
-                  step={0.001}
+                  step={0.003}
                   required
                   className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                 />
