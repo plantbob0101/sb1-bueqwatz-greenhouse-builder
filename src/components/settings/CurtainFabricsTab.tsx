@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Loader2, Edit2, Trash2, X, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, Loader2, Edit2, Trash2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
 interface CurtainFabric {
@@ -9,7 +9,7 @@ interface CurtainFabric {
   energy_savings: number;
   shade_percentage: number;
   ventilation_reduction: number;
-  width_size: number[];
+  width_size: string[];
   price_0_5000: number;
   price_5000_20000: number;
   price_20000_plus: number;
@@ -28,6 +28,7 @@ export default function CurtainFabricsTab() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingFabric, setEditingFabric] = useState<CurtainFabric | null>(null);
+  const [widthSizeInput, setWidthSizeInput] = useState('');
   const [formData, setFormData] = useState<Partial<CurtainFabric>>({
     fabric_name: '',
     fabric_type: 'Shade',
@@ -39,26 +40,19 @@ export default function CurtainFabricsTab() {
     price_5000_20000: 0,
     price_20000_plus: 0
   });
-  const [debugInfo, setDebugInfo] = useState<string[]>([]);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
-  const addDebugInfo = (info: string) => {
-    setDebugInfo(prev => [...prev, `${new Date().toISOString()}: ${info}`].slice(-5));
-  };
-
   useEffect(() => {
     const init = async () => {
-      addDebugInfo('Component mounted - Debug panel test');
       const { data: { session }, error } = await supabase.auth.getSession();
       if (error) {
-        addDebugInfo(`Auth Error: ${error.message}`);
+        setError(`Auth Error: ${error.message}`);
       } else if (session) {
-        addDebugInfo(`Logged in as: ${session.user.email}`);
+        loadFabrics();
       } else {
-        addDebugInfo('No active session');
+        setError('No active session');
       }
-      loadFabrics();
     };
     init();
   }, []);
@@ -68,11 +62,10 @@ export default function CurtainFabricsTab() {
       const { data, error } = await supabase
         .from('curtain_fabrics')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('fabric_name');
 
       if (error) throw error;
       setFabrics(data || []);
-      console.log('Loaded fabrics:', data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load curtain fabrics');
     } finally {
@@ -85,19 +78,78 @@ export default function CurtainFabricsTab() {
     setError(null);
 
     try {
+      // Parse and validate width sizes
+      const widths = widthSizeInput
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+
+      // Validate each width is a valid number
+      const invalidWidth = widths.find(w => isNaN(parseFloat(w)));
+      if (invalidWidth) {
+        throw new Error(`Invalid width value: ${invalidWidth}`);
+      }
+
+      if (widths.length === 0) {
+        throw new Error('Please enter at least one width size');
+      }
+
+      // Create the data object with all required fields
+      const dataToSubmit = {
+        fabric_name: formData.fabric_name || '',
+        fabric_type: formData.fabric_type || 'Shade',
+        // Convert percentage values to decimal (0-1)
+        energy_savings: Number(formData.energy_savings) / 100,
+        shade_percentage: Number(formData.shade_percentage) / 100,
+        ventilation_reduction: Number(formData.ventilation_reduction) / 100,
+        width_size: widths,
+        price_0_5000: Number(formData.price_0_5000),
+        price_5000_20000: Number(formData.price_5000_20000),
+        price_20000_plus: Number(formData.price_20000_plus)
+      } as const;
+
+      type DataKeys = keyof typeof dataToSubmit;
+      const requiredFields: DataKeys[] = [
+        'fabric_name',
+        'fabric_type',
+        'energy_savings',
+        'shade_percentage',
+        'ventilation_reduction',
+        'width_size',
+        'price_0_5000',
+        'price_5000_20000',
+        'price_20000_plus'
+      ];
+
+      const missingFields = requiredFields.filter(field => {
+        const value = dataToSubmit[field];
+        return value === undefined || value === null || value === '' || 
+               (typeof value === 'number' && isNaN(value));
+      });
+
+      if (missingFields.length > 0) {
+        throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+      }
+
       if (editingFabric) {
         const { error } = await supabase
           .from('curtain_fabrics')
-          .update(formData)
+          .update(dataToSubmit)
           .eq('fabric_id', editingFabric.fabric_id);
 
-        if (error) throw error;
+        if (error) {
+          console.error('Supabase update error:', error);
+          throw new Error(`Database error: ${error.message}`);
+        }
       } else {
         const { error } = await supabase
           .from('curtain_fabrics')
-          .insert([formData]);
+          .insert([dataToSubmit]);
 
-        if (error) throw error;
+        if (error) {
+          console.error('Supabase insert error:', error);
+          throw new Error(`Database error: ${error.message}`);
+        }
       }
 
       await loadFabrics();
@@ -114,13 +166,14 @@ export default function CurtainFabricsTab() {
         price_5000_20000: 0,
         price_20000_plus: 0
       });
+      setWidthSizeInput('');
     } catch (err) {
+      console.error('Form submission error:', err);
       setError(err instanceof Error ? err.message : 'Failed to save curtain fabric');
     }
   };
 
   const handleDelete = async (fabricId: string) => {
-    addDebugInfo('Delete button clicked');
     setPendingDeleteId(fabricId);
     setShowDeleteConfirm(true);
   };
@@ -129,38 +182,15 @@ export default function CurtainFabricsTab() {
     if (!pendingDeleteId) return;
 
     try {
-      addDebugInfo('Delete confirmed by user');
-      // Check auth state
-      const { data: { session }, error: authError } = await supabase.auth.getSession();
-      if (authError) {
-        addDebugInfo(`Auth error: ${authError.message}`);
-        setError('Authentication error: ' + authError.message);
-        return;
-      }
-      if (!session) {
-        addDebugInfo('No active session');
-        setError('You must be logged in to delete items');
-        return;
-      }
-      addDebugInfo(`Active session: ${session.user.email}`);
-
-      addDebugInfo(`Attempting to delete fabric: ${pendingDeleteId}`);
       const { error } = await supabase
         .from('curtain_fabrics')
         .delete()
         .eq('fabric_id', pendingDeleteId);
 
-      if (error) {
-        addDebugInfo(`Delete error: ${error.message}`);
-        setError(`Failed to delete: ${error.message}`);
-        return;
-      }
-
-      addDebugInfo('Delete successful');
+      if (error) throw error;
       await loadFabrics();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to delete curtain fabric';
-      addDebugInfo(`Error: ${message}`);
       setError(message);
     } finally {
       setShowDeleteConfirm(false);
@@ -169,354 +199,101 @@ export default function CurtainFabricsTab() {
   };
 
   const cancelDelete = () => {
-    addDebugInfo('Delete cancelled by user');
     setShowDeleteConfirm(false);
     setPendingDeleteId(null);
   };
 
   const handleEdit = (fabric: CurtainFabric) => {
     setEditingFabric(fabric);
-    setFormData(fabric);
+    setWidthSizeInput(fabric.width_size.join(', '));
+    setFormData({
+      ...fabric,
+      // Convert decimal values (0-1) to percentage (0-100) for display
+      energy_savings: fabric.energy_savings * 100,
+      shade_percentage: fabric.shade_percentage * 100,
+      ventilation_reduction: fabric.ventilation_reduction * 100
+    });
     setShowForm(true);
   };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 text-emerald-500 animate-spin mx-auto mb-2" />
+          <p className="text-gray-500">Loading...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="mt-4 p-4 bg-red-100 rounded-lg">
-        <h3 className="font-semibold mb-2">Debug Panel (Always Visible)</h3>
-        {debugInfo.length === 0 ? (
-          <div className="text-sm font-mono">No debug information yet</div>
-        ) : (
-          debugInfo.map((info, i) => (
-            <div key={i} className="text-sm font-mono">{info}</div>
-          ))
-        )}
-      </div>
-
-      {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white p-6 rounded-lg shadow-xl">
-            <h3 className="text-lg font-semibold mb-4">Confirm Delete</h3>
-            <p className="mb-6">Are you sure you want to delete this curtain fabric?</p>
-            <div className="flex justify-end space-x-4">
-              <button
-                onClick={cancelDelete}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDelete}
-                className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="flex justify-end">
-        <button
-          onClick={() => {
-            setEditingFabric(null);
-            setFormData({
-              fabric_name: '',
-              fabric_type: 'Shade',
-              energy_savings: 0,
-              shade_percentage: 0,
-              ventilation_reduction: 0,
-              width_size: [],
-              price_0_5000: 0,
-              price_5000_20000: 0,
-              price_20000_plus: 0
-            });
-            setShowForm(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          New Curtain Fabric
-        </button>
-      </div>
-
+    <div className="p-4">
+      {/* Error Display */}
       {error && (
-        <div className="bg-red-500/10 text-red-500 p-4 rounded-lg flex items-center gap-2">
-          <AlertCircle className="w-5 h-5" />
-          {error}
+        <div className="p-4 bg-red-100 text-red-700 rounded-lg mb-4">
+          <strong>Error:</strong> {error}
         </div>
       )}
 
-      {showForm ? (
-        <div className="bg-gray-800 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold">
-              {editingFabric ? 'Edit Curtain Fabric' : 'New Curtain Fabric'}
-            </h3>
-            <button
-              onClick={() => {
-                setShowForm(false);
-                setEditingFabric(null);
-              }}
-              className="text-gray-400 hover:text-white"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Fabric Name
-                </label>
-                <input
-                  type="text"
-                  value={formData.fabric_name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, fabric_name: e.target.value }))}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Fabric Type
-                </label>
-                <select
-                  value={formData.fabric_type}
-                  onChange={(e) => setFormData(prev => ({ ...prev, fabric_type: e.target.value as CurtainFabric['fabric_type'] }))}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                >
-                  {FABRIC_TYPES.map(type => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Shade Percentage (%)
-                </label>
-                <input
-                  type="number"
-                  value={formData.shade_percentage}
-                  onChange={(e) => setFormData(prev => ({ ...prev, shade_percentage: parseFloat(e.target.value) || 0 }))}
-                  min={0}
-                  max={100}
-                  step={0.1}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Energy Savings (%)
-                </label>
-                <input
-                  type="number"
-                  value={formData.energy_savings}
-                  onChange={(e) => setFormData(prev => ({ ...prev, energy_savings: parseFloat(e.target.value) || 0 }))}
-                  min={0}
-                  max={100}
-                  step={0.1}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Ventilation Reduction (%)
-                </label>
-                <input
-                  type="number"
-                  value={formData.ventilation_reduction}
-                  onChange={(e) => setFormData(prev => ({ ...prev, ventilation_reduction: parseFloat(e.target.value) || 0 }))}
-                  min={0}
-                  max={100}
-                  step={0.001}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Width Size (ft)
-                </label>
-                <div className="space-y-2">
-                  {formData.width_size?.map((width, index) => (
-                    <div key={index} className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        value={width}
-                        onChange={(e) => {
-                          const newValue = parseFloat(e.target.value) || 0;
-                          const newWidths = [...(formData.width_size || [])];
-                          newWidths[index] = Number(newValue.toFixed(2));
-                          setFormData(prev => ({
-                            ...prev,
-                            width_size: newWidths
-                          }));
-                        }}
-                        min={0}
-                        step={0.1}
-                        className="flex-1 bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const newWidths = formData.width_size?.filter((_, i) => i !== index) || [];
-                          setFormData(prev => ({
-                            ...prev,
-                            width_size: newWidths
-                          }));
-                        }}
-                        className="p-2 text-gray-400 hover:text-white"
-                      >
-                        <X className="w-4 h-4" />
-                      </button>
-                    </div>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFormData(prev => ({
-                        ...prev,
-                        width_size: [...(prev.width_size || []), 0]
-                      }));
-                    }}
-                    className="flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:text-white"
-                  >
-                    <Plus className="w-4 h-4" />
-                    Add Width Size
-                  </button>
-                </div>
-                <p className="mt-1 text-sm text-gray-400">
-                  Click "Add Width Size" to add a new width value. Each width can have up to 2 decimal places.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Price (0-5,000 sq ft)
-                </label>
-                <input
-                  type="number"
-                  value={formData.price_0_5000}
-                  onChange={(e) => setFormData(prev => ({ ...prev, price_0_5000: parseFloat(e.target.value) || 0 }))}
-                  min={0}
-                  step={0.001}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Price (5,000-20,000 sq ft)
-                </label>
-                <input
-                  type="number"
-                  value={formData.price_5000_20000}
-                  onChange={(e) => setFormData(prev => ({ ...prev, price_5000_20000: parseFloat(e.target.value) || 0 }))}
-                  min={0}
-                  step={0.001}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Price (20,000+ sq ft)
-                </label>
-                <input
-                  type="number"
-                  value={formData.price_20000_plus}
-                  onChange={(e) => setFormData(prev => ({ ...prev, price_20000_plus: parseFloat(e.target.value) || 0 }))}
-                  min={0}
-                  step={0.001}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowForm(false);
-                  setEditingFabric(null);
-                }}
-                className="px-4 py-2 text-gray-300 hover:text-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors"
-              >
-                {editingFabric ? 'Save Changes' : 'Create Fabric'}
-              </button>
-            </div>
-          </form>
+      {/* Fabric List */}
+      <div className="bg-gray-800 rounded-lg shadow overflow-hidden">
+        <div className="p-4 flex justify-between items-center">
+          <h2 className="text-lg font-semibold text-white">Curtain Fabrics</h2>
+          <button
+            onClick={() => {
+              setEditingFabric(null);
+              setFormData({
+                fabric_name: '',
+                fabric_type: 'Shade',
+                energy_savings: 0,
+                shade_percentage: 0,
+                ventilation_reduction: 0,
+                width_size: [],
+                price_0_5000: 0,
+                price_5000_20000: 0,
+                price_20000_plus: 0
+              });
+              setWidthSizeInput('');
+              setShowForm(true);
+            }}
+            className="px-4 py-2 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Add Fabric
+          </button>
         </div>
-      ) : (
-        <div className="bg-gray-800 rounded-lg overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-gray-750">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Name</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Type</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Shade</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Energy</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Vent.</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Width</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Price Range</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-700">
+            <thead className="bg-gray-700">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Name</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Type</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Properties</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Widths</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Prices</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-700">
+            <tbody className="bg-gray-800 divide-y divide-gray-700">
               {fabrics.map((fabric) => (
-                <tr key={fabric.fabric_id} className="hover:bg-gray-750">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-white">{fabric.fabric_name}</div>
+                <tr key={fabric.fabric_id}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-white">{fabric.fabric_name}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-white">{fabric.fabric_type}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
+                    <div>Energy Savings: {(fabric.energy_savings * 100).toFixed(1)}%</div>
+                    <div>Shade: {(fabric.shade_percentage * 100).toFixed(1)}%</div>
+                    <div>Ventilation Reduction: {(fabric.ventilation_reduction * 100).toFixed(1)}%</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-white">{fabric.fabric_type}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-white">{fabric.shade_percentage.toFixed(1)}%</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-white">{fabric.energy_savings.toFixed(1)}%</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-white">{fabric.ventilation_reduction.toFixed(1)}%</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-white">
-                      {fabric.width_size.map(w => Number(w).toFixed(1)).join(', ')} ft
-                    </div>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
+                    {fabric.width_size.join(', ')}
                   </td>
                   <td className="px-6 py-4">
                     <div className="text-sm text-white space-y-1">
-                      <div>0-5k: ${fabric.price_0_5000.toFixed(3)}</div>
-                      <div>5k-20k: ${fabric.price_5000_20000.toFixed(3)}</div>
-                      <div>20k+: ${fabric.price_20000_plus.toFixed(3)}</div>
+                      <div>0-5k: ${(fabric.price_0_5000 ?? 0).toFixed(3)}</div>
+                      <div>5k-20k: ${(fabric.price_5000_20000 ?? 0).toFixed(3)}</div>
+                      <div>20k+: ${(fabric.price_20000_plus ?? 0).toFixed(3)}</div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -537,6 +314,212 @@ export default function CurtainFabricsTab() {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Add/Edit Form Modal */}
+      {showForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-white">
+                {editingFabric ? 'Edit Fabric' : 'Add Fabric'}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowForm(false);
+                  setEditingFabric(null);
+                }}
+                className="text-gray-400 hover:text-gray-300"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Fabric Name
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.fabric_name}
+                    onChange={(e) => setFormData({ ...formData, fabric_name: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Fabric Type
+                  </label>
+                  <select
+                    value={formData.fabric_type}
+                    onChange={(e) => setFormData({ ...formData, fabric_type: e.target.value as CurtainFabric['fabric_type'] })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  >
+                    {FABRIC_TYPES.map((type) => (
+                      <option key={type} value={type}>
+                        {type}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Energy Savings (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    value={formData.energy_savings}
+                    onChange={(e) => setFormData({ ...formData, energy_savings: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Shade (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    value={formData.shade_percentage}
+                    onChange={(e) => setFormData({ ...formData, shade_percentage: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Ventilation Reduction (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    value={formData.ventilation_reduction}
+                    onChange={(e) => setFormData({ ...formData, ventilation_reduction: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">
+                  Available Widths (ft)
+                </label>
+                <input
+                  type="text"
+                  value={widthSizeInput}
+                  onChange={(e) => setWidthSizeInput(e.target.value)}
+                  placeholder="e.g. 11.8, 13.7"
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Price (0-5,000 sq ft)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    value={formData.price_0_5000}
+                    onChange={(e) => setFormData({ ...formData, price_0_5000: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Price (5,000-20,000 sq ft)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    value={formData.price_5000_20000}
+                    onChange={(e) => setFormData({ ...formData, price_5000_20000: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Price (20,000+ sq ft)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    value={formData.price_20000_plus}
+                    onChange={(e) => setFormData({ ...formData, price_20000_plus: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForm(false);
+                    setEditingFabric(null);
+                  }}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-emerald-500 text-white rounded-md hover:bg-emerald-600"
+                >
+                  {editingFabric ? 'Save Changes' : 'Add Fabric'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold text-white mb-4">Confirm Delete</h3>
+            <p className="text-gray-300 mb-6">Are you sure you want to delete this fabric? This action cannot be undone.</p>
+            <div className="flex justify-end gap-4">
+              <button
+                onClick={cancelDelete}
+                className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, Loader2, Edit2, Trash2, X, AlertCircle } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, Loader2, Edit2, Trash2 } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 
 interface PolyCompany {
@@ -21,6 +21,7 @@ export default function PolyGlazingTab() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingCompany, setEditingCompany] = useState<PolyCompany | null>(null);
+  const [widthSizeInput, setWidthSizeInput] = useState('');
   const [formData, setFormData] = useState<Partial<PolyCompany>>({
     company_name: '',
     type: '',
@@ -33,24 +34,17 @@ export default function PolyGlazingTab() {
   });
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<string[]>([]);
-
-  const addDebugInfo = (info: string) => {
-    setDebugInfo(prev => [...prev, `${new Date().toISOString()}: ${info}`].slice(-5));
-  };
 
   useEffect(() => {
     const init = async () => {
-      addDebugInfo('Component mounted - Debug panel test');
       const { data: { session }, error } = await supabase.auth.getSession();
       if (error) {
-        addDebugInfo(`Auth Error: ${error.message}`);
+        setError(`Auth Error: ${error.message}`);
       } else if (session) {
-        addDebugInfo(`Logged in as: ${session.user.email}`);
+        loadCompanies();
       } else {
-        addDebugInfo('No active session');
+        setError('No active session');
       }
-      loadCompanies();
     };
     init();
   }, []);
@@ -60,7 +54,7 @@ export default function PolyGlazingTab() {
       const { data, error } = await supabase
         .from('glazing_companies_poly')
         .select('*')
-        .order('created_at', { ascending: false });
+        .order('company_name');
 
       if (error) throw error;
       setCompanies(data || []);
@@ -75,30 +69,77 @@ export default function PolyGlazingTab() {
     e.preventDefault();
     setError(null);
     
-    // Ensure all numeric values are valid
-    const numericData = {
-      ...formData,
-      light_transmittance: Number(formData.light_transmittance) || 0,
-      light_diffusion: Number(formData.light_diffusion) || 0,
-      price_400lbs_less: Number(formData.price_400lbs_less) || 0,
-      price_401_2000lbs: Number(formData.price_401_2000lbs) || 0,
-      price_2000lbs_plus: Number(formData.price_2000lbs_plus) || 0
-    };
-
     try {
+      // Parse and validate width sizes
+      const widths = widthSizeInput
+        .split(',')
+        .map(s => s.trim())
+        .filter(Boolean);
+
+      // Validate each width is a valid number
+      const invalidWidth = widths.find(w => isNaN(parseFloat(w)));
+      if (invalidWidth) {
+        throw new Error(`Invalid width value: ${invalidWidth}`);
+      }
+
+      if (widths.length === 0) {
+        throw new Error('Please enter at least one width size');
+      }
+
+      // Create the data object with all required fields
+      const dataToSubmit = {
+        company_name: formData.company_name || '',
+        type: formData.type || '',
+        // Convert percentage values to decimal (0-1)
+        light_transmittance: Number(formData.light_transmittance) / 100,
+        light_diffusion: Number(formData.light_diffusion) / 100,
+        widths_available: widths,
+        price_400lbs_less: Number(formData.price_400lbs_less),
+        price_401_2000lbs: Number(formData.price_401_2000lbs),
+        price_2000lbs_plus: Number(formData.price_2000lbs_plus)
+      } as const;
+
+      type DataKeys = keyof typeof dataToSubmit;
+      const requiredFields: DataKeys[] = [
+        'company_name',
+        'type',
+        'light_transmittance',
+        'light_diffusion',
+        'widths_available',
+        'price_400lbs_less',
+        'price_401_2000lbs',
+        'price_2000lbs_plus'
+      ];
+
+      const missingFields = requiredFields.filter(field => {
+        const value = dataToSubmit[field];
+        return value === undefined || value === null || value === '' || 
+               (typeof value === 'number' && isNaN(value));
+      });
+
+      if (missingFields.length > 0) {
+        throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+      }
+
       if (editingCompany) {
         const { error } = await supabase
           .from('glazing_companies_poly')
-          .update(numericData)
+          .update(dataToSubmit)
           .eq('company_id', editingCompany.company_id);
 
-        if (error) throw error;
+        if (error) {
+          console.error('Supabase update error:', error);
+          throw new Error(`Database error: ${error.message}`);
+        }
       } else {
         const { error } = await supabase
           .from('glazing_companies_poly')
-          .insert([numericData]);
+          .insert([dataToSubmit]);
 
-        if (error) throw error;
+        if (error) {
+          console.error('Supabase insert error:', error);
+          throw new Error(`Database error: ${error.message}`);
+        }
       }
 
       await loadCompanies();
@@ -114,13 +155,14 @@ export default function PolyGlazingTab() {
         price_401_2000lbs: 0,
         price_2000lbs_plus: 0
       });
+      setWidthSizeInput('');
     } catch (err) {
+      console.error('Form submission error:', err);
       setError(err instanceof Error ? err.message : 'Failed to save company');
     }
   };
 
   const handleDelete = async (companyId: string) => {
-    addDebugInfo('Delete button clicked');
     setPendingDeleteId(companyId);
     setShowDeleteConfirm(true);
   };
@@ -129,37 +171,15 @@ export default function PolyGlazingTab() {
     if (!pendingDeleteId) return;
 
     try {
-      addDebugInfo('Delete confirmed by user');
-      const { data: { session }, error: authError } = await supabase.auth.getSession();
-      if (authError) {
-        addDebugInfo(`Auth error: ${authError.message}`);
-        setError('Authentication error: ' + authError.message);
-        return;
-      }
-      if (!session) {
-        addDebugInfo('No active session');
-        setError('You must be logged in to delete items');
-        return;
-      }
-      addDebugInfo(`Active session: ${session.user.email}`);
-
-      addDebugInfo(`Attempting to delete company: ${pendingDeleteId}`);
       const { error } = await supabase
         .from('glazing_companies_poly')
         .delete()
         .eq('company_id', pendingDeleteId);
 
-      if (error) {
-        addDebugInfo(`Delete error: ${error.message}`);
-        setError(`Failed to delete: ${error.message}`);
-        return;
-      }
-
-      addDebugInfo('Delete successful');
+      if (error) throw error;
       await loadCompanies();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to delete poly glazing company';
-      addDebugInfo(`Error: ${message}`);
       setError(message);
     } finally {
       setShowDeleteConfirm(false);
@@ -174,282 +194,92 @@ export default function PolyGlazingTab() {
 
   const handleEdit = (company: PolyCompany) => {
     setEditingCompany(company);
-    setFormData(company);
+    setWidthSizeInput(company.widths_available.join(', '));
+    setFormData({
+      ...company,
+      // Convert decimal values (0-1) to percentage (0-100) for display
+      light_transmittance: company.light_transmittance * 100,
+      light_diffusion: company.light_diffusion * 100
+    });
     setShowForm(true);
   };
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 text-emerald-500 animate-spin" />
+        <div className="text-center">
+          <Loader2 className="w-8 h-8 text-emerald-500 animate-spin mx-auto mb-2" />
+          <p className="text-gray-500">Loading...</p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Debug Panel */}
-      <div className="mt-4 p-4 bg-red-100 rounded-lg">
-        <h3 className="font-semibold mb-2 text-gray-900">Debug Panel (Always Visible)</h3>
-        {debugInfo.length === 0 ? (
-          <div className="text-sm font-mono text-gray-700">No debug information yet</div>
-        ) : (
-          debugInfo.map((info, i) => (
-            <div key={i} className="text-sm font-mono text-gray-700">{info}</div>
-          ))
-        )}
-      </div>
-
-      {showDeleteConfirm && (
-        <div className="fixed top-0 left-0 right-0 bottom-0 bg-black bg-opacity-50 flex items-center justify-center" style={{ zIndex: 9999 }}>
-          <div className="relative bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
-            <h3 className="text-lg font-semibold mb-4 text-gray-900">Confirm Delete</h3>
-            <p className="mb-6 text-gray-700">Are you sure you want to delete this poly glazing company?</p>
-            <div className="flex justify-end space-x-4">
-              <button
-                onClick={cancelDelete}
-                className="px-4 py-2 text-gray-600 hover:text-gray-800 bg-gray-100 rounded"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={confirmDelete}
-                className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
-              >
-                Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <div className="flex justify-end">
-        <button
-          onClick={() => {
-            setEditingCompany(null);
-            setFormData({
-              company_name: '',
-              type: '',
-              light_transmittance: 0.0,
-              light_diffusion: 0.0,
-              widths_available: [],
-              price_400lbs_less: 0.0,
-              price_401_2000lbs: 0.0,
-              price_2000lbs_plus: 0.0
-            });
-            setShowForm(true);
-          }}
-          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors"
-        >
-          <Plus className="w-4 h-4" />
-          New Poly
-        </button>
-      </div>
-
+    <div className="p-4">
+      {/* Error Display */}
       {error && (
-        <div className="bg-red-500/10 text-red-500 p-4 rounded-lg flex items-center gap-2">
-          <AlertCircle className="w-5 h-5" />
-          {error}
+        <div className="p-4 bg-red-100 text-red-700 rounded-lg mb-4">
+          <strong>Error:</strong> {error}
         </div>
       )}
 
-      {showForm ? (
-        <div className="bg-gray-800 rounded-lg p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-semibold">
-              {editingCompany ? 'Edit Company' : 'New Company'}
-            </h3>
-            <button
-              onClick={() => {
-                setShowForm(false);
-                setEditingCompany(null);
-              }}
-              className="text-gray-400 hover:text-white"
-            >
-              <X className="w-6 h-6" />
-            </button>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Company Name
-                </label>
-                <input
-                  type="text"
-                  value={formData.company_name}
-                  onChange={(e) => setFormData(prev => ({ ...prev, company_name: e.target.value }))}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Type
-                </label>
-                <input
-                  type="text"
-                  value={formData.type}
-                  onChange={(e) => setFormData(prev => ({ ...prev, type: e.target.value }))}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Light Transmittance
-                </label>
-                <input
-                  type="number"
-                  value={formData.light_transmittance}
-                  onChange={(e) => setFormData(prev => ({ ...prev, light_transmittance: e.target.value ? parseFloat(e.target.value) : 0 }))}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Light Diffusion
-                </label>
-                <input
-                  type="number"
-                  value={formData.light_diffusion}
-                  onChange={(e) => setFormData(prev => ({ ...prev, light_diffusion: e.target.value ? parseFloat(e.target.value) : 0 }))}
-                  min={0}
-                  max={1}
-                  step={0.01}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Available Widths
-                </label>
-                <input
-                  type="text"
-                  value={formData.widths_available?.join(', ')}
-                  onChange={(e) => setFormData(prev => ({
-                    ...prev,
-                    widths_available: e.target.value.split(',').map(w => w.trim())
-                  }))}
-                  placeholder="Enter widths separated by commas"
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Price (400 lbs or less)
-                </label>
-                <input
-                  type="number"
-                  value={formData.price_400lbs_less}
-                  onChange={(e) => setFormData(prev => ({ ...prev, price_400lbs_less: e.target.value ? parseFloat(e.target.value) : 0 }))}
-                  min={0}
-                  step={0.003}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Price (401-2000 lbs)
-                </label>
-                <input
-                  type="number"
-                  value={formData.price_401_2000lbs}
-                  onChange={(e) => setFormData(prev => ({ ...prev, price_401_2000lbs: e.target.value ? parseFloat(e.target.value) : 0 }))}
-                  min={0}
-                  step={0.003}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Price (2000+ lbs)
-                </label>
-                <input
-                  type="number"
-                  value={formData.price_2000lbs_plus}
-                  onChange={(e) => setFormData(prev => ({ ...prev, price_2000lbs_plus: e.target.value ? parseFloat(e.target.value) : 0 }))}
-                  min={0}
-                  step={0.003}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-4">
-              <button
-                type="button"
-                onClick={() => {
-                  setShowForm(false);
-                  setEditingCompany(null);
-                }}
-                className="px-4 py-2 text-gray-300 hover:text-white"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors"
-              >
-                {editingCompany ? 'Save Changes' : 'Create Company'}
-              </button>
-            </div>
-          </form>
+      {/* Company List */}
+      <div className="bg-gray-800 rounded-lg shadow overflow-hidden">
+        <div className="p-4 flex justify-between items-center">
+          <h2 className="text-lg font-semibold text-white">Poly Glazing Companies</h2>
+          <button
+            onClick={() => {
+              setEditingCompany(null);
+              setFormData({
+                company_name: '',
+                type: '',
+                light_transmittance: 0,
+                light_diffusion: 0,
+                widths_available: [],
+                price_400lbs_less: 0,
+                price_401_2000lbs: 0,
+                price_2000lbs_plus: 0
+              });
+              setWidthSizeInput('');
+              setShowForm(true);
+            }}
+            className="px-4 py-2 bg-emerald-500 text-white rounded-md hover:bg-emerald-600 flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            Add Company
+          </button>
         </div>
-      ) : (
-        <div className="bg-gray-800 rounded-lg overflow-hidden">
-          <table className="w-full">
-            <thead>
-              <tr className="bg-gray-750">
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Company</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Type</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Light Trans.</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Light Diff.</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Widths</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Price Range</th>
-                <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
+
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-700">
+            <thead className="bg-gray-700">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Company</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Type</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Light Properties</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Widths</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-300 uppercase tracking-wider">Prices</th>
+                <th className="px-6 py-3 text-right text-xs font-medium text-gray-300 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-700">
+            <tbody className="bg-gray-800 divide-y divide-gray-700">
               {companies.map((company) => (
-                <tr key={company.company_id} className="hover:bg-gray-750">
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-white">{company.company_name}</div>
+                <tr key={company.company_id}>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-white">{company.company_name}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-white">{company.type}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
+                    <div>Light Transmission: {(company.light_transmittance * 100).toFixed(1)}%</div>
+                    <div>Light Diffusion: {(company.light_diffusion * 100).toFixed(1)}%</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-white">{company.type}</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-white">{(company.light_transmittance * 100).toFixed(1)}%</div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm text-white">{(company.light_diffusion * 100).toFixed(1)}%</div>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="text-sm text-white">{company.widths_available.join(', ')}</div>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
+                    {company.widths_available.join(', ')}
                   </td>
                   <td className="px-6 py-4">
                     <div className="text-sm text-white space-y-1">
-                      <div>≤400 lbs: ${company.price_400lbs_less.toFixed(3)}</div>
-                      <div>401-2000 lbs: ${company.price_401_2000lbs.toFixed(3)}</div>
-                      <div>2000+ lbs: ${company.price_2000lbs_plus.toFixed(3)}</div>
+                      <div>0-400 lbs: ${(company.price_400lbs_less ?? 0).toFixed(3)}</div>
+                      <div>401-2000 lbs: ${(company.price_401_2000lbs ?? 0).toFixed(3)}</div>
+                      <div>2000+ lbs: ${(company.price_2000lbs_plus ?? 0).toFixed(3)}</div>
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -470,6 +300,192 @@ export default function PolyGlazingTab() {
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Add/Edit Form Modal */}
+      {showForm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-gray-800 rounded-lg p-6 w-full max-w-2xl">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-semibold text-white">
+                {editingCompany ? 'Edit Company' : 'Add Company'}
+              </h3>
+              <button
+                onClick={() => {
+                  setShowForm(false);
+                  setEditingCompany(null);
+                }}
+                className="text-gray-400 hover:text-gray-300"
+              >
+                <Trash2 className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Company Name
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.company_name}
+                    onChange={(e) => setFormData({ ...formData, company_name: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Type
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.type}
+                    onChange={(e) => setFormData({ ...formData, type: e.target.value })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Light Transmission (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    value={formData.light_transmittance}
+                    onChange={(e) => setFormData({ ...formData, light_transmittance: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Light Diffusion (%)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    min="0"
+                    max="100"
+                    value={formData.light_diffusion}
+                    onChange={(e) => setFormData({ ...formData, light_diffusion: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-400 mb-1">
+                  Available Widths (ft)
+                </label>
+                <input
+                  type="text"
+                  value={widthSizeInput}
+                  onChange={(e) => setWidthSizeInput(e.target.value)}
+                  placeholder="e.g. 11.8, 13.7"
+                  className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Price (0-400 lbs)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    value={formData.price_400lbs_less}
+                    onChange={(e) => setFormData({ ...formData, price_400lbs_less: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Price (401-2000 lbs)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    value={formData.price_401_2000lbs}
+                    onChange={(e) => setFormData({ ...formData, price_401_2000lbs: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-400 mb-1">
+                    Price (2000+ lbs)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    value={formData.price_2000lbs_plus}
+                    onChange={(e) => setFormData({ ...formData, price_2000lbs_plus: Number(e.target.value) })}
+                    className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForm(false);
+                    setEditingCompany(null);
+                  }}
+                  className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-emerald-500 text-white rounded-md hover:bg-emerald-600"
+                >
+                  {editingCompany ? 'Save Changes' : 'Add Company'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-gray-800 rounded-lg p-6 max-w-md w-full">
+            <h3 className="text-lg font-semibold text-white mb-4">Confirm Delete</h3>
+            <p className="text-gray-300 mb-6">Are you sure you want to delete this company? This action cannot be undone.</p>
+            <div className="flex justify-end gap-4">
+              <button
+                onClick={cancelDelete}
+                className="px-4 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-500"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -21,15 +21,14 @@ interface PC8Company {
 const GLAZING_TYPES = ['PC8', 'CPC'] as const;
 
 const PC8GlazingTab = () => {
-  console.log('PC8GlazingTab: Starting render');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [debugInfo, setDebugInfo] = useState<string[]>([]);
   const [companies, setCompanies] = useState<PC8Company[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [editingCompany, setEditingCompany] = useState<PC8Company | null>(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [widthSizeInput, setWidthSizeInput] = useState('');
   const [formData, setFormData] = useState<Omit<PC8Company, 'company_id' | 'updated_at'>>({
     company_name: '',
     product: '',
@@ -44,37 +43,22 @@ const PC8GlazingTab = () => {
     created_at: new Date().toISOString()
   });
 
-  const addDebugInfo = (info: string) => {
-    console.log('Debug:', info);
-    setDebugInfo(prev => [...prev, `${new Date().toISOString()}: ${info}`].slice(-5));
-  };
-
   // Load companies from Supabase
   const loadCompanies = async () => {
     try {
-      addDebugInfo('Loading companies...');
       const { data, error } = await supabase
-        .from('glazing_companies_pc8')
+        .from('pc8_glazing_materials')
         .select('*')
         .order('company_name');
 
       if (error) {
-        addDebugInfo(`Load error: ${error.message}`);
         setError(`Failed to load companies: ${error.message}`);
         return;
       }
 
-      if (data && data.length > 0) {
-        console.log('First company data structure:', data[0]);
-        // Log all column names
-        console.log('Column names:', Object.keys(data[0]));
-      }
-
       setCompanies(data || []);
-      addDebugInfo(`Loaded ${data?.length || 0} companies`);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load companies';
-      addDebugInfo(`Error: ${message}`);
       setError(message);
     } finally {
       setLoading(false);
@@ -83,27 +67,17 @@ const PC8GlazingTab = () => {
 
   // Initialize component
   useEffect(() => {
-    console.log('PC8GlazingTab: useEffect running');
     const init = async () => {
       try {
-        console.log('PC8GlazingTab: Starting initialization');
-        addDebugInfo('Component mounted');
         const { data: { session }, error } = await supabase.auth.getSession();
         if (error) {
-          console.error('PC8GlazingTab: Auth error:', error);
-          addDebugInfo(`Auth Error: ${error.message}`);
           setError(`Auth Error: ${error.message}`);
         } else if (session) {
-          console.log('PC8GlazingTab: Session found:', session.user.email);
-          addDebugInfo(`Logged in as: ${session.user.email}`);
           await loadCompanies();
         } else {
-          console.log('PC8GlazingTab: No session found');
-          addDebugInfo('No active session');
           setError('No active session');
         }
       } catch (err) {
-        console.error('PC8GlazingTab: Init error:', err);
         setError(err instanceof Error ? err.message : 'Initialization error');
       }
     };
@@ -112,6 +86,7 @@ const PC8GlazingTab = () => {
 
   const handleEdit = (company: PC8Company) => {
     setEditingCompany(company);
+    setWidthSizeInput(company.width_size.join(', '));
     setFormData({
       company_name: company.company_name,
       product: company.product,
@@ -135,14 +110,6 @@ const PC8GlazingTab = () => {
 
   return (
     <div className="p-4">
-      {/* Debug Panel */}
-      <div className="p-4 bg-red-100 rounded-lg mb-4">
-        <h3 className="font-semibold mb-2 text-gray-900">Debug Panel</h3>
-        {debugInfo.map((info, i) => (
-          <div key={i} className="text-sm font-mono text-gray-700">{info}</div>
-        ))}
-      </div>
-
       {/* Error Display */}
       {error && (
         <div className="p-4 bg-red-100 text-red-700 rounded-lg mb-4">
@@ -165,6 +132,7 @@ const PC8GlazingTab = () => {
             <button
               onClick={() => {
                 setEditingCompany(null);
+                setWidthSizeInput('');
                 setFormData({
                   company_name: '',
                   product: '',
@@ -216,20 +184,20 @@ const PC8GlazingTab = () => {
                         <div className="text-sm text-white">{company.type}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-white">{(company.light_transmittance * 100).toFixed(1)}%</div>
+                        <div className="text-sm text-white">{company.light_transmittance.toFixed(1)}%</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-white">{(company.light_diffusion * 100).toFixed(1)}%</div>
+                        <div className="text-sm text-white">{company.light_diffusion.toFixed(1)}%</div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm text-white">{company.width_size.join(', ')} ft</div>
+                        <div className="text-sm text-white">{company.width_size.map(w => parseFloat(w).toFixed(1)).join(', ')} ft</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm text-white space-y-1">
-                          <div>0-5k: ${(company.price_0_5000 ?? 0).toFixed(2)}</div>
-                          <div>5k-10k: ${(company.price_5000_10000 ?? 0).toFixed(2)}</div>
-                          <div>10k-50k: ${(company.price_10000_50000 ?? 0).toFixed(2)}</div>
-                          <div>50k+: ${(company.price_50000_plus ?? 0).toFixed(2)}</div>
+                          <div>0-5k: ${(company.price_0_5000 ?? 0).toFixed(3)}</div>
+                          <div>5k-10k: ${(company.price_5000_10000 ?? 0).toFixed(3)}</div>
+                          <div>10k-50k: ${(company.price_10000_50000 ?? 0).toFixed(3)}</div>
+                          <div>50k+: ${(company.price_50000_plus ?? 0).toFixed(3)}</div>
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
@@ -272,55 +240,58 @@ const PC8GlazingTab = () => {
               <form onSubmit={async (e) => {
                 e.preventDefault();
                 try {
-                  addDebugInfo('Attempting to save company...');
-                  console.log('Form data:', formData);
+                  // Parse and validate width sizes
+                  const widths = widthSizeInput
+                    .split(',')
+                    .map(s => s.trim())
+                    .filter(Boolean);
+
+                  // Validate each width is a valid number
+                  const invalidWidth = widths.find(w => isNaN(parseFloat(w)));
+                  if (invalidWidth) {
+                    throw new Error(`Invalid width value: ${invalidWidth}`);
+                  }
+
+                  if (widths.length === 0) {
+                    throw new Error('Please enter at least one width size');
+                  }
+
+                  const dataToSubmit = {
+                    ...formData,
+                    width_size: widths
+                  };
                   
                   if (editingCompany) {
-                    addDebugInfo(`Updating company: ${formData.company_name}`);
-                    const { data, error } = await supabase
-                      .from('glazing_companies_pc8')
-                      .update(formData)
+                    const { error } = await supabase
+                      .from('pc8_glazing_materials')
+                      .update(dataToSubmit)
                       .eq('company_id', editingCompany.company_id);
                     
-                    if (error) {
-                      console.error('Update error:', error);
-                      addDebugInfo(`Update error: ${error.message}`);
-                      throw error;
-                    }
-                    addDebugInfo(`Updated company: ${formData.company_name}`);
-                    console.log('Update response:', data);
+                    if (error) throw error;
                   } else {
-                    addDebugInfo(`Adding new company: ${formData.company_name}`);
-                    const { data, error } = await supabase
-                      .from('glazing_companies_pc8')
-                      .insert([formData])
+                    const { error } = await supabase
+                      .from('pc8_glazing_materials')
+                      .insert([dataToSubmit])
                       .select();
                     
-                    if (error) {
-                      console.error('Insert error:', error);
-                      addDebugInfo(`Insert error: ${error.message}`);
-                      throw error;
-                    }
-                    addDebugInfo(`Added new company: ${formData.company_name}`);
-                    console.log('Insert response:', data);
+                    if (error) throw error;
                   }
                   
                   await loadCompanies();
                   setShowForm(false);
                 } catch (err) {
-                  console.error('Save error:', err);
                   let message: string;
                   if (err instanceof Error) {
                     message = err.message;
                   } else if (err && typeof err === 'object' && 'message' in err) {
                     message = String(err.message);
                   } else {
-                    message = 'Failed to save company - check console for details';
+                    message = 'Failed to save company';
                   }
                   setError(message);
-                  addDebugInfo(`Error: ${message}`);
                 }
-              }} className="space-y-4">
+              }}
+                className="space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">
@@ -364,15 +335,15 @@ const PC8GlazingTab = () => {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-400 mb-1">
-                      Light Transmittance (%)
+                      Light Transmission (%)
                     </label>
                     <input
                       type="number"
                       step="0.1"
                       min="0"
                       max="100"
-                      value={formData.light_transmittance * 100}
-                      onChange={(e) => setFormData({ ...formData, light_transmittance: Number(e.target.value) / 100 })}
+                      value={formData.light_transmittance}
+                      onChange={(e) => setFormData({ ...formData, light_transmittance: Number(e.target.value) })}
                       className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
                       required
                     />
@@ -386,8 +357,8 @@ const PC8GlazingTab = () => {
                       step="0.1"
                       min="0"
                       max="100"
-                      value={formData.light_diffusion * 100}
-                      onChange={(e) => setFormData({ ...formData, light_diffusion: Number(e.target.value) / 100 })}
+                      value={formData.light_diffusion}
+                      onChange={(e) => setFormData({ ...formData, light_diffusion: Number(e.target.value) })}
                       className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
                       required
                     />
@@ -400,12 +371,9 @@ const PC8GlazingTab = () => {
                   </label>
                   <input
                     type="text"
-                    value={formData.width_size.join(', ')}
-                    onChange={(e) => setFormData({
-                      ...formData,
-                      width_size: e.target.value.split(',').map(s => s.trim()).filter(Boolean)
-                    })}
-                    placeholder="e.g. 4, 6, 8"
+                    value={widthSizeInput}
+                    onChange={(e) => setWidthSizeInput(e.target.value)}
+                    placeholder="e.g. 11.8, 13.7"
                     className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
                     required
                   />
@@ -418,7 +386,7 @@ const PC8GlazingTab = () => {
                     </label>
                     <input
                       type="number"
-                      step="0.01"
+                      step="0.001"
                       min="0"
                       value={formData.price_0_5000}
                       onChange={(e) => setFormData({ ...formData, price_0_5000: Number(e.target.value) })}
@@ -432,7 +400,7 @@ const PC8GlazingTab = () => {
                     </label>
                     <input
                       type="number"
-                      step="0.01"
+                      step="0.001"
                       min="0"
                       value={formData.price_5000_10000}
                       onChange={(e) => setFormData({ ...formData, price_5000_10000: Number(e.target.value) })}
@@ -449,7 +417,7 @@ const PC8GlazingTab = () => {
                     </label>
                     <input
                       type="number"
-                      step="0.01"
+                      step="0.001"
                       min="0"
                       value={formData.price_10000_50000}
                       onChange={(e) => setFormData({ ...formData, price_10000_50000: Number(e.target.value) })}
@@ -463,7 +431,7 @@ const PC8GlazingTab = () => {
                     </label>
                     <input
                       type="number"
-                      step="0.01"
+                      step="0.001"
                       min="0"
                       value={formData.price_50000_plus}
                       onChange={(e) => setFormData({ ...formData, price_50000_plus: Number(e.target.value) })}
@@ -517,17 +485,15 @@ const PC8GlazingTab = () => {
                       if (!pendingDeleteId) return;
                       try {
                         const { error } = await supabase
-                          .from('glazing_companies_pc8')
+                          .from('pc8_glazing_materials')
                           .delete()
                           .eq('company_id', pendingDeleteId);
                         
                         if (error) throw error;
-                        addDebugInfo(`Deleted company ID: ${pendingDeleteId}`);
                         await loadCompanies();
                       } catch (err) {
                         const message = err instanceof Error ? err.message : 'Failed to delete company';
                         setError(message);
-                        addDebugInfo(`Error: ${message}`);
                       } finally {
                         setShowDeleteConfirm(false);
                         setPendingDeleteId(null);
