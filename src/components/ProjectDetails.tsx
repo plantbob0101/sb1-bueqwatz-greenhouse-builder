@@ -9,6 +9,10 @@ import ShareProjectModal from './ShareProjectModal';
 
 type Structure = Database['public']['Tables']['structures']['Row'];
 type StructureUpdate = Database['public']['Tables']['structures']['Update'];
+type StructureUserEntry = Database['public']['Tables']['structure_user_entries']['Row'];
+
+// Combined type for the structure and user entry
+type CombinedStructure = Structure & Omit<StructureUserEntry, 'structure_id'>;
 
 interface ProjectDetailsProps {
   structureId: string;
@@ -17,7 +21,7 @@ interface ProjectDetailsProps {
 }
 
 export default function ProjectDetails({ structureId, onBack, onDelete }: ProjectDetailsProps) {
-  const [structure, setStructure] = useState<Structure | null>(null);
+  const [structure, setStructure] = useState<CombinedStructure | null>(null);
   const [loading, setLoading] = useState(true);
   const [vents, setVents] = useState<any[]>([]);
   const [showVentForm, setShowVentForm] = useState(false);
@@ -42,57 +46,28 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
   const [rollupWallDrives, setRollupWallDrives] = useState<Record<string, any>>({});
 
   useEffect(() => {
-    if (rollupWalls.length > 0) {
-      const driveIds = rollupWalls
-        .filter(wall => wall.drive_id)
-        .map(wall => wall.drive_id);
-
-      if (driveIds.length > 0) {
-        loadDrives(driveIds);
-      }
-    }
-  }, [rollupWalls]);
-
-  const loadDrives = async (driveIds: string[]) => {
-    try {
-      const { data, error } = await supabase
-        .from('rollup_drop_drives')
-        .select('*')
-        .in('drive_id', driveIds);
-
-      if (error) throw error;
-
-      const drivesMap = (data || []).reduce((acc, drive) => ({
-        ...acc,
-        [drive.drive_id]: drive
-      }), {});
-
-      setRollupWallDrives(drivesMap);
-    } catch (err) {
-      console.error('Error loading drives:', err);
-    }
-  };
-
-  useEffect(() => {
-    async function loadStructure() {
+    async function fetchStructure() {
       try {
-        const { data, error } = await supabase 
+        const { data: userEntry, error: userEntryError } = await supabase
           .from('structure_user_entries')
-          .select(`
-            *,
-            structure:structures(
-              model,
-              width,
-              spacing,
-              eave_height
-            )
-          `)
+          .select('*')
           .eq('entry_id', structureId)
           .single();
 
-        if (error) throw error;
-        setStructure(data);
-        setEditedStructure(data);
+        if (userEntryError) throw userEntryError;
+
+        const { data: structureData, error: structureError } = await supabase
+          .from('structures')
+          .select('*')
+          .eq('structure_id', userEntry.structure_id)
+          .single();
+
+        if (structureError) throw structureError;
+
+        // Combine the data, omitting the duplicate structure_id from userEntry
+        const { structure_id: _, ...userEntryWithoutStructureId } = userEntry;
+        setStructure({ ...structureData, ...userEntryWithoutStructureId });
+        setEditedStructure({ ...structureData, ...userEntryWithoutStructureId });
 
         // Load vents
         const { data: ventData, error: ventError } = await supabase
@@ -136,14 +111,46 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
         setDropWalls(dropWallData || []);
 
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load project details');
+        setError(err instanceof Error ? err.message : 'Failed to fetch structure details');
       } finally {
         setLoading(false);
       }
     }
 
-    loadStructure();
+    fetchStructure();
   }, [structureId]);
+
+  useEffect(() => {
+    if (rollupWalls.length > 0) {
+      const driveIds = rollupWalls
+        .filter(wall => wall.drive_id)
+        .map(wall => wall.drive_id);
+
+      if (driveIds.length > 0) {
+        loadDrives(driveIds);
+      }
+    }
+  }, [rollupWalls]);
+
+  const loadDrives = async (driveIds: string[]) => {
+    try {
+      const { data, error } = await supabase
+        .from('rollup_drop_drives')
+        .select('*')
+        .in('drive_id', driveIds);
+
+      if (error) throw error;
+
+      const drivesMap = (data || []).reduce((acc, drive) => ({
+        ...acc,
+        [drive.drive_id]: drive
+      }), {});
+
+      setRollupWallDrives(drivesMap);
+    } catch (err) {
+      console.error('Error loading drives:', err);
+    }
+  };
 
   const handleEdit = () => {
     setIsEditing(true);
@@ -162,7 +169,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
         .eq('entry_id', structureId);
 
       if (error) throw error;
-      setStructure(editedStructure as Structure);
+      setStructure(editedStructure as CombinedStructure);
       setIsEditing(false);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Failed to save changes');
@@ -209,34 +216,199 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
 
   const handleAddVent = async (ventData: any) => {
     try {
-      const { data, error } = await supabase
+      // Log the incoming data
+      console.log('ProjectDetails - Received vent data:', ventData);
+      
+      // Separate vent and insect screen data
+      const { 
+        vent_insect_screen,
+        insect_screen_type,
+        insect_screen_quantity,
+        insect_screen_length,
+        ...ventPayload 
+      } = ventData;
+
+      // First insert the vent
+      const { data: newVent, error: ventError } = await supabase
         .from('vents')
-        .insert([{
-          ...ventData,
+        .insert([{ 
+          ...ventPayload, 
           structure_id: structureId
         }])
         .select()
         .single();
 
-      if (error) throw error;
-      setVents([...vents, data]);
+      if (ventError) {
+        console.error('Error creating vent:', ventError);
+        throw ventError;
+      }
+
+      console.log('ProjectDetails - Created vent:', newVent);
+
+      // If there's insect screen data, create it
+      if (insect_screen_type && newVent) {
+        // Create the insect screen with the correct fields based on the actual database schema
+        const screenData = {
+          vent_id: newVent.vent_id,
+          type: insect_screen_type,
+          quantity: insect_screen_quantity || 1,
+          length: insect_screen_length || 1,
+          notes: ventPayload.notes || ''
+        };
+
+        console.log('ProjectDetails - Creating insect screen with data:', screenData);
+
+        const { error: screenError } = await supabase
+          .from('vent_insect_screen')
+          .insert([screenData]);
+
+        if (screenError) {
+          console.error('Error creating insect screen:', screenError);
+          // If insect screen creation fails, delete the vent to maintain consistency
+          await supabase.from('vents').delete().eq('vent_id', newVent.vent_id);
+          throw screenError;
+        }
+      }
+
+      // Fetch the complete vent data including the drive and insect screen
+      const { data: completeVent, error: fetchError } = await supabase
+        .from('vents')
+        .select(`
+          vent_id,
+          vent_type,
+          single_double,
+          vent_size,
+          vent_quantity,
+          vent_length,
+          ati_house,
+          notes,
+          drive:vent_drives (
+            drive_id,
+            drive_type,
+            motor_specifications
+          ),
+          vent_insect_screen (
+            screen_id,
+            type,
+            quantity,
+            length,
+            notes
+          )
+        `)
+        .eq('vent_id', newVent.vent_id)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      // Update the vents list with the new vent
+      setVents([...vents, completeVent]);
       setShowVentForm(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add vent');
+    } catch (error) {
+      console.error('Error adding vent:', error);
+      setError(error instanceof Error ? error.message : 'Failed to add vent');
     }
   };
 
   const handleUpdateVent = async (ventId: string, ventData: any) => {
     try {
-      const { error } = await supabase
+      // Separate vent and insect screen data
+      const { 
+        vent_insect_screen,
+        insect_screen_type,
+        insect_screen_quantity,
+        insect_screen_length,
+        ...ventPayload 
+      } = ventData;
+
+      // Update the vent
+      const { error: ventError } = await supabase
         .from('vents')
-        .update(ventData)
+        .update(ventPayload)
         .eq('vent_id', ventId);
 
-      if (error) throw error;
-      setVents(vents.map(v => v.vent_id === ventId ? { ...v, ...ventData } : v));
+      if (ventError) throw ventError;
+
+      // Handle insect screen
+      if (vent_insect_screen) {
+        // Check if insect screen exists
+        const { data: existingScreen } = await supabase
+          .from('vent_insect_screen')
+          .select('screen_id')
+          .eq('vent_id', ventId)
+          .maybeSingle();
+
+        if (existingScreen) {
+          // Update existing screen
+          const screenData = {
+            type: vent_insect_screen.type,
+            quantity: vent_insect_screen.quantity,
+            length: vent_insect_screen.length,
+            notes: ventPayload.notes
+          };
+          const { error: screenError } = await supabase
+            .from('vent_insect_screen')
+            .update(screenData)
+            .eq('vent_id', ventId);
+
+          if (screenError) {
+            console.error('Error updating screen:', screenError);
+            throw screenError;
+          }
+        } else {
+          // Create new screen
+          const screenData = {
+            vent_id: ventId,
+            type: vent_insect_screen.type,
+            quantity: vent_insect_screen.quantity,
+            length: vent_insect_screen.length,
+            notes: ventPayload.notes
+          };
+          const { error: screenError } = await supabase
+            .from('vent_insect_screen')
+            .insert([screenData]);
+
+          if (screenError) {
+            console.error('Error creating screen:', screenError);
+            throw screenError;
+          }
+        }
+      }
+
+      // Fetch updated vent with all related data
+      const { data: updatedVent, error: fetchError } = await supabase
+        .from('vents')
+        .select(`
+          vent_id,
+          vent_type,
+          single_double,
+          vent_size,
+          vent_quantity,
+          vent_length,
+          ati_house,
+          notes,
+          drive:vent_drives (
+            drive_id,
+            drive_type,
+            motor_specifications
+          ),
+          vent_insect_screen (
+            screen_id,
+            type,
+            quantity,
+            length,
+            notes
+          )
+        `)
+        .eq('vent_id', ventId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      setVents(vents.map(v => v.vent_id === ventId ? updatedVent : v));
       setEditingVent(null);
+      setShowVentForm(false);
     } catch (err) {
+      console.error('Error updating vent:', err);
       setError(err instanceof Error ? err.message : 'Failed to update vent');
     }
   };
@@ -261,10 +433,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
     try {
       const { data, error } = await supabase
         .from('rollup_walls')
-        .insert([{
-          ...wallData,
-          structure_id: structureId
-        }])
+        .insert([{ ...wallData, structure_id: structureId }])
         .select()
         .single();
 
@@ -315,10 +484,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
     try {
       const { data, error } = await supabase
         .from('drop_walls')
-        .insert([{
-          ...wallData,
-          structure_id: structureId
-        }])
+        .insert([{ ...wallData, structure_id: structureId }])
         .select()
         .single();
 
@@ -489,13 +655,13 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
             <div className="flex justify-between">
               <dt>Model:</dt>
               <dd className="font-medium">
-                {structure.structure?.model || 'N/A'}
+                {structure.model || 'N/A'}
               </dd>
             </div>
             <div className="flex justify-between">
               <dt>Spacing:</dt>
               <dd className="font-medium">
-                {structure.structure?.spacing ? `${structure.structure.spacing} ft` : 'N/A'}
+                {structure.spacing ? `${structure.spacing} ft` : 'N/A'}
               </dd>
             </div>
             <div className="flex justify-between">
@@ -512,7 +678,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     className="bg-gray-700 border border-gray-600 rounded w-20 px-2 py-1"
                   />
                 ) : (
-                  `${structure.width_ft} ft`
+                  structure.width_ft ? `${structure.width_ft} ft` : 'N/A'
                 )}
               </dd>
             </div>
@@ -530,7 +696,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     className="bg-gray-700 border border-gray-600 rounded w-20 px-2 py-1"
                   />
                 ) : (
-                  `${structure.length_ft} ft`
+                  structure.length_ft ? `${structure.length_ft} ft` : 'N/A'
                 )}
               </dd>
             </div>
@@ -546,7 +712,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     className="bg-gray-700 border border-gray-600 rounded w-20 px-2 py-1"
                   />
                 ) : (
-                  `${structure.eave_height} ft`
+                  structure.eave_height ? `${structure.eave_height} ft` : 'N/A'
                 )}
               </dd>
             </div>
@@ -573,7 +739,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     className="bg-gray-700 border border-gray-600 rounded w-20 px-2 py-1"
                   />
                 ) : (
-                  structure.zones
+                  structure.zones || 'N/A'
                 )}
               </dd>
             </div>
@@ -591,7 +757,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     className="bg-gray-700 border border-gray-600 rounded w-20 px-2 py-1"
                   />
                 ) : (
-                  structure.ranges || 1
+                  structure.ranges || 'N/A'
                 )}
               </dd>
             </div>
@@ -609,7 +775,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     className="bg-gray-700 border border-gray-600 rounded w-20 px-2 py-1"
                   />
                 ) : (
-                  structure.houses || 1
+                  structure.houses || 'N/A'
                 )}
               </dd>
             </div>
@@ -653,7 +819,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     ))}
                   </select>
                 ) : (
-                  structure.roof_glazing
+                  structure.roof_glazing || 'N/A'
                 )}
               </dd>
             </div>
@@ -672,7 +838,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     ))}
                   </select>
                 ) : (
-                  structure.covering_roof
+                  structure.covering_roof || 'N/A'
                 )}
               </dd>
             </div>
@@ -691,7 +857,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     ))}
                   </select>
                 ) : (
-                  structure.covering_sidewalls
+                  structure.covering_sidewalls || 'N/A'
                 )}
               </dd>
             </div>
@@ -710,7 +876,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     ))}
                   </select>
                 ) : (
-                  structure.covering_endwalls
+                  structure.covering_endwalls || 'N/A'
                 )}
               </dd>
             </div>
@@ -729,7 +895,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     ))}
                   </select>
                 ) : (
-                  structure.covering_gables
+                  structure.covering_gables || 'N/A'
                 )}
               </dd>
             </div>
@@ -747,7 +913,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     className="bg-gray-700 border border-gray-600 rounded w-20 px-2 py-1"
                   />
                 ) : (
-                  structure.gutter_partitions
+                  structure.gutter_partitions || 'N/A'
                 )}
               </dd>
             </div>
@@ -765,7 +931,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     className="bg-gray-700 border border-gray-600 rounded w-20 px-2 py-1"
                   />
                 ) : (
-                  structure.gable_partitions
+                  structure.gable_partitions || 'N/A'
                 )}
               </dd>
             </div>
@@ -825,6 +991,19 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     <p>Length: {vent.vent_length}'</p>
                     <p>ATI House: {vent.ati_house}</p>
                     <p>Drive: {vent.drive ? `${vent.drive.drive_type} - ${vent.drive.motor_specifications || 'No specs'}` : 'No drive selected'}</p>
+                    
+                    {/* Display insect screen information if available */}
+                    {vent.vent_insect_screen && vent.vent_insect_screen.length > 0 && (
+                      <div className="mt-2 pt-2 border-t border-gray-700">
+                        <p className="font-medium text-emerald-400">Insect Screen:</p>
+                        <p>Type: {vent.vent_insect_screen[0].type}</p>
+                        <p>Quantity: {vent.vent_insect_screen[0].quantity}</p>
+                        <p>Length: {vent.vent_insect_screen[0].length}'</p>
+                        {vent.vent_insect_screen[0].notes && (
+                          <p>Notes: {vent.vent_insect_screen[0].notes}</p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -833,8 +1012,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                       setEditingVent(vent);
                       setShowVentForm(true);
                     }}
-                    className="p-2 hover:bg-gray-700 rounded-lg transition-colors text-emer
-ald-500"
+                    className="p-2 hover:bg-gray-700 rounded-lg transition-colors text-emerald-500"
                   >
                     <Edit2 className="w-4 h-4" />
                   </button>
