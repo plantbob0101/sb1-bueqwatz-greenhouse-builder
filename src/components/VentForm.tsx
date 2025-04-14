@@ -1,23 +1,45 @@
 import React, { useState, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 
+interface VentData {
+  vent_id?: string;
+  vent_type: string;
+  single_double: string;
+  vent_size: number;
+  vent_quantity: number;
+  vent_length: number;
+  ati_house: string;
+  notes: string;
+  drive_id?: string | null;
+  vent_insect_screen?: {
+    type: string;
+    quantity: number;
+    length: number;
+    width: number;
+    notes?: string;
+  }[];
+}
+
 interface VentFormProps {
-  vent?: {
-    vent_id: string;
-    vent_type: string;
-    single_double: string;
-    vent_size: number;
-    vent_quantity: number;
-    vent_length: number;
-    ati_house: string;
-    notes: string;
-    drive_id?: string;
-    insect_screen_type?: string;
-    insect_screen_quantity?: number;
-    insect_screen_length?: number;
-  } | null;
+  vent?: VentData;
   onSubmit: (data: any) => void;
   onCancel: () => void;
+  structure?: {
+    model: string;
+    length: number;
+  };
+}
+
+interface VentDrive {
+  drive_id: string;
+  drive_type: string;
+  vent_type: string;
+  vent_size: number;
+  motor_specifications: string | null;
+  compatible_structures: string[];
+  created_at: string | null;
+  updated_at: string | null;
+  max_length: number;
 }
 
 const CONFIGURATIONS = ['Single', 'Double'];
@@ -36,14 +58,13 @@ const VENT_TYPES = [
 ] as const;
 
 // Define default sizes for each vent type
-const DEFAULT_VENT_SIZES: Record<string, number[]> = {
-  'Continental Roof': [48],
-  'Gothic Roof': [48],
+const DEFAULT_VENT_SIZES: { [key: string]: number[] } = {
+  'Solar Light Roof': [54],
   'Insulator Roof': [48],
-  'Oxnard Vent': [36, 48],
-  'Pad Vent': [36, 48],
-  'Solar Light Roof': [48],
-  'Wall Vent': [36, 48, 60]
+  'Gothic Roof': [48],
+  'Continental Roof': [48],
+  'Wall Vent Single': [36, 42, 48],
+  'Wall Vent Double': [36, 42, 48]
 };
 
 // These must match exactly with the values in the database constraint
@@ -64,24 +85,73 @@ const VALID_COMBINED_TYPES = [
   'Wall Vent Double'
 ];
 
-export default function VentForm({ vent, onSubmit, onCancel }: VentFormProps) {
-  const [formData, setFormData] = useState({
-    vent_type: vent?.vent_type || 'Continental Roof',
-    single_double: vent?.single_double || 'Single',
-    vent_size: vent?.vent_size || DEFAULT_VENT_SIZES['Continental Roof'][0],
-    vent_quantity: vent?.vent_quantity || 1,
-    vent_length: vent?.vent_length || 1,
-    ati_house: vent?.ati_house || 'No',
-    notes: vent?.notes || '',
-    drive_id: vent?.drive_id || null,
-    insect_screen_type: vent?.insect_screen_type || '',
-    insect_screen_quantity: vent?.insect_screen_quantity || 1,
-    insect_screen_length: vent?.insect_screen_length || 1
-  });
-  const [availableSizes, setAvailableSizes] = useState<number[]>(DEFAULT_VENT_SIZES['Continental Roof']);
-  const [availableDrives, setAvailableDrives] = useState<any[]>([]);
+export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFormProps) {
+  const getVentTypeFromModel = (model: string = '') => {
+    const upperModel = model.toUpperCase();
+    if (upperModel.startsWith('SL')) return 'Solar Light Roof';
+    if (upperModel.startsWith('IN')) return 'Insulator Roof';
+    if (upperModel.startsWith('NS')) return 'Gothic Roof';
+    if (upperModel.startsWith('CT')) return 'Continental Roof';
+    return 'Continental Roof'; // default
+  };
+
+  const getDefaultVentSize = (ventType: string) => {
+    return DEFAULT_VENT_SIZES[ventType][0];
+  };
+
+  const initialVentType = structure ? getVentTypeFromModel(structure.model) : 'Continental Roof';
+
+  const defaultVentData: VentData = {
+    vent_type: initialVentType,
+    single_double: 'Single',
+    vent_size: getDefaultVentSize(initialVentType),
+    vent_quantity: 1,
+    vent_length: structure?.length || 1,
+    ati_house: 'Yes',
+    notes: '',
+    drive_id: undefined,
+    vent_insect_screen: undefined
+  };
+
+  const [formData, setFormData] = useState<VentData>(vent || defaultVentData);
+  const [availableSizes, setAvailableSizes] = useState<number[]>(DEFAULT_VENT_SIZES[formData.vent_type]);
+  const [availableDrives, setAvailableDrives] = useState<VentDrive[]>([]);
   const [selectedDriveId, setSelectedDriveId] = useState<string | null>(vent?.drive_id || null);
   const [insectScreenFabrics, setInsectScreenFabrics] = useState<string[]>([]);
+
+  useEffect(() => {
+    console.log('Initial form data:', {
+      ventData: vent,
+      formData,
+      selectedDriveId
+    });
+  }, []);
+
+  useEffect(() => {
+    if (vent) {
+      const ventQuantity = typeof vent.vent_quantity === 'string' ? parseInt(vent.vent_quantity) : vent.vent_quantity;
+      const ventLength = typeof vent.vent_length === 'string' ? parseInt(vent.vent_length) : vent.vent_length;
+      
+      const newFormData: VentData = {
+        ...defaultVentData,
+        ...vent,
+        vent_quantity: ventQuantity || 1,
+        vent_length: ventLength || 1,
+        drive_id: vent.drive_id,
+        vent_insect_screen: vent.vent_insect_screen?.map(screen => ({
+          ...screen,
+          quantity: ventQuantity || 1,
+          length: ventLength || 1
+        }))
+      };
+
+      setFormData(newFormData);
+
+      if (vent.vent_type in DEFAULT_VENT_SIZES) {
+        setAvailableSizes(DEFAULT_VENT_SIZES[vent.vent_type]);
+      }
+    }
+  }, [vent]);
 
   useEffect(() => {
     async function loadInsectScreenFabrics() {
@@ -102,72 +172,243 @@ export default function VentForm({ vent, onSubmit, onCancel }: VentFormProps) {
     loadInsectScreenFabrics();
   }, []);
 
+  useEffect(() => {
+    async function loadVentDrives() {
+      try {
+        console.log('Form data when loading drives:', formData);
+        
+        // Get all drives with explicit field selection
+        const { data: allDrives, error: allDrivesError } = await supabase
+          .from('vent_drives')
+          .select('*');
+
+        if (allDrivesError) {
+          console.error('Error loading all drives:', allDrivesError);
+          return;
+        }
+
+        // Show raw database results
+        console.log('Raw database results:', allDrives);
+
+        if (allDrives && allDrives.length > 0) {
+          console.log('First drive fields:', Object.keys(allDrives[0]));
+        }
+
+        // Cast and log the full drive data with all fields
+        const typedDrives = (allDrives || []).map(drive => {
+          // Create a properly typed object with defaults for missing fields
+          return {
+            drive_id: drive.drive_id,
+            drive_type: drive.drive_type,
+            vent_type: drive.vent_type,
+            vent_size: drive.vent_size || 160,
+            motor_specifications: drive.motor_specifications,
+            compatible_structures: drive.compatible_structures || [],
+            created_at: drive.created_at,
+            updated_at: drive.updated_at,
+            // In the database, vent_size is actually the maximum vent length the drive can handle
+            max_length: drive.vent_size || 160
+          } as VentDrive;
+        });
+
+        console.log('Available vent types in database:', [...new Set(typedDrives.map(d => d.vent_type))]);
+        console.log('Selected vent type:', formData.vent_type);
+        
+        // NO FILTERING AT ALL - show all drives
+        const unfiltered = typedDrives;
+        console.log('All drives, unfiltered:', unfiltered);
+        
+        // Step 1: Filter by vent type only
+        const ventTypeFiltered = typedDrives.filter(drive => {
+          const ventTypeMatch = drive.vent_type === formData.vent_type;
+          console.log(`Filtering drive ${drive.drive_id}: type=${drive.vent_type}, match=${ventTypeMatch}`);
+          return ventTypeMatch;
+        });
+        
+        console.log('After vent type filtering:', ventTypeFiltered);
+        
+        // Step 2: Add structure model filtering
+        const structureFiltered = ventTypeFiltered.filter(drive => {
+          // If no structure model is selected, include all drives
+          if (!structure?.model) {
+            return true;
+          }
+          
+          // Check if the drive is compatible with the selected structure
+          const structureMatch = drive.compatible_structures.some(code => 
+            structure.model.startsWith(code)
+          );
+          
+          console.log(`Structure filtering for drive ${drive.drive_id}: model=${structure?.model}, compatible=${drive.compatible_structures.join(',')}, match=${structureMatch}`);
+          return structureMatch;
+        });
+        
+        console.log('After structure filtering:', structureFiltered);
+        
+        // Finally filter by length
+        const lengthFiltered = structureFiltered.filter(drive => {
+          const rawVentLength = formData.vent_length;
+          console.log('Raw vent length:', rawVentLength, typeof rawVentLength);
+          
+          // Don't filter if no length is set
+          if (!rawVentLength) {
+            console.log(`Drive ${drive.drive_id}: No length set, including drive`);
+            return true;
+          }
+
+          const ventLength = parseFloat(rawVentLength);
+          
+          // If it's not a valid number, include all drives
+          if (isNaN(ventLength)) {
+            console.log(`Drive ${drive.drive_id}: Invalid length value, including drive`);
+            return true;
+          }
+          
+          // Check if the drive can handle the vent length
+          // Use vent_size as the max_length since that's what it represents in the database
+          const maxLength = drive.vent_size;
+          const lengthMatch = maxLength >= ventLength;
+          
+          if (!lengthMatch) {
+            console.log(`Drive ${drive.drive_id}: FILTERED OUT - max size ${maxLength} is less than vent length ${ventLength}`);
+          } else {
+            console.log(`Drive ${drive.drive_id}: INCLUDED - max size ${maxLength} can handle vent length ${ventLength}`);
+          }
+          
+          return lengthMatch;
+        });
+        
+        console.log('After length filtering:', lengthFiltered);
+        
+        // Use length filtered drives
+        const drives = lengthFiltered;
+
+        setAvailableDrives(drives);
+        
+        // If we have drives but none selected, select the first one
+        if (drives.length && !selectedDriveId) {
+          const newDriveId = drives[0].drive_id;
+          setSelectedDriveId(newDriveId);
+          setFormData(prev => ({
+            ...prev,
+            drive_id: newDriveId
+          }));
+        }
+        
+        // If the currently selected drive is no longer valid
+        // select the first available drive instead
+        if (selectedDriveId && !drives.some(d => d.drive_id === selectedDriveId)) {
+          if (drives.length) {
+            const newDriveId = drives[0].drive_id;
+            setSelectedDriveId(newDriveId);
+            setFormData(prev => ({
+              ...prev,
+              drive_id: newDriveId
+            }));
+          } else {
+            setSelectedDriveId(null);
+            setFormData(prev => ({
+              ...prev,
+              drive_id: undefined
+            }));
+          }
+        }
+      } catch (error) {
+        console.error('Error in loadVentDrives:', error);
+      }
+    }
+
+    if (formData.vent_type) {
+      loadVentDrives();
+    }
+  }, [formData.vent_type, formData.vent_length, structure?.model]);
+
+  useEffect(() => {
+    console.log('Form state updated:', {
+      ventType: formData.vent_type,
+      availableDrives,
+      selectedDriveId,
+      formDataDriveId: formData.drive_id
+    });
+  }, [formData.vent_type, availableDrives, selectedDriveId, formData.drive_id]);
+
+  useEffect(() => {
+    if (selectedDriveId) {
+      // Find the selected drive
+      const selectedDrive = availableDrives.find(d => d.drive_id === selectedDriveId);
+      
+      if (selectedDrive) {
+        console.log('Selected drive:', selectedDrive);
+        setFormData(prev => ({
+          ...prev,
+          drive_id: selectedDriveId
+        }));
+      }
+    }
+  }, [selectedDriveId, availableDrives]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    console.log('Form field changed:', { name: e.target.name, value: e.target.value });
     const { name, value, type } = e.target;
     
-    // Update form data
     setFormData(prev => {
-      const newData = {
-        ...prev,
-        [name]: type === 'number' ? (value === '' ? '' : Number(value)) : value
-      };
+      const newData = { ...prev };
+      
+      if (type === 'number') {
+        newData[name as keyof VentData] = value === '' ? 0 : parseFloat(value);
+      } else {
+        newData[name as keyof VentData] = value;
+      }
 
-      // If changing vent type or configuration, validate the combination
-      if (name === 'vent_type' || name === 'single_double') {
-        const combinedType = `${name === 'vent_type' ? value : prev.vent_type} ${name === 'single_double' ? value : prev.single_double}`;
-        
-        // If the combination is invalid, reset insect screen data
-        if (!VALID_COMBINED_TYPES.includes(combinedType)) {
-          console.warn('Invalid vent type combination:', combinedType);
-          return {
-            ...newData,
-            insect_screen_type: '',
-            insect_screen_quantity: 1,
-            insect_screen_length: 100
-          };
+      // If changing vent quantity or length, update insect screen
+      if (name === 'vent_quantity' || name === 'vent_length') {
+        if (prev.vent_insect_screen?.[0]) {
+          newData.vent_insect_screen = [{
+            ...prev.vent_insect_screen[0],
+            quantity: name === 'vent_quantity' ? parseFloat(value) : prev.vent_insect_screen[0].quantity,
+            length: name === 'vent_length' ? parseFloat(value) : prev.vent_insect_screen[0].length
+          }];
         }
+      }
+
+      // Handle insect screen type selection
+      if (name === 'insect_screen_type') {
+        if (value) {
+          newData.vent_insect_screen = [{
+            type: value,
+            quantity: prev.vent_quantity,
+            length: prev.vent_length,
+            width: prev.vent_insect_screen?.[0]?.width || 0
+          }];
+        } else {
+          newData.vent_insect_screen = undefined;
+        }
+      }
+
+      // Handle insect screen width
+      if (name === 'insect_screen_width' && prev.vent_insect_screen?.[0]) {
+        newData.vent_insect_screen = [{
+          ...prev.vent_insect_screen[0],
+          width: parseFloat(value)
+        }];
       }
 
       return newData;
     });
-
-    // Update available sizes if vent type changes
-    if (name === 'vent_type' && value in DEFAULT_VENT_SIZES) {
-      setAvailableSizes(DEFAULT_VENT_SIZES[value]);
-    }
   };
 
-  useEffect(() => {
-    // Update available sizes when vent type changes
-    const sizes = DEFAULT_VENT_SIZES[formData.vent_type] || [];
-    setAvailableSizes(sizes);
+  // Update available sizes and default size when vent type changes
+  const handleVentTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const newVentType = e.target.value;
+    const newSizes = DEFAULT_VENT_SIZES[newVentType];
+    setAvailableSizes(newSizes);
     
-    // Update form data with first available size if current size isn't in the list
-    if (!sizes.includes(formData.vent_size)) {
-      setFormData(prev => ({
-        ...prev,
-        vent_size: sizes[0]
-      }));
-    }
-  }, [formData.vent_type]);
-
-  useEffect(() => {
-    async function loadVentDrives() {
-      try {
-        const { data, error } = await supabase
-          .from('vent_drives')
-          .select('*')
-          .eq('vent_type', formData.vent_type);
-
-        if (error) throw error;
-        setAvailableDrives(data || []);
-      } catch (err) {
-        console.error('Error loading vent drives:', err);
-      }
-    }
-
-    loadVentDrives();
-  }, [formData.vent_type]);
+    setFormData(prev => ({
+      ...prev,
+      vent_type: newVentType,
+      vent_size: newSizes[0] // Set to first available size for the new vent type
+    }));
+  };
 
   // Get the current combined vent type for insect screen
   const getCombinedVentType = () => {
@@ -181,21 +422,26 @@ export default function VentForm({ vent, onSubmit, onCancel }: VentFormProps) {
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('VentForm - Submitting form data:', formData);
-    
-    // Prepare the vent data
-    const ventData = {
+    console.log('Submitting form with data:', {
       ...formData,
-      vent_insect_screen: formData.insect_screen_type ? {
-        type: formData.insect_screen_type,
-        quantity: formData.insect_screen_quantity,
-        length: formData.insect_screen_length,
-        vent_type: getCombinedVentType()
-      } : null
-    };
+      drive_id: selectedDriveId
+    });
     
-    console.log('VentForm - Prepared vent data:', ventData);
-    onSubmit(ventData);
+    // If insect screen type is selected but no width, set a default
+    if (formData.vent_insect_screen?.[0] && !formData.vent_insect_screen[0].width) {
+      formData.vent_insect_screen[0].width = 0;
+    }
+
+    // Always ensure insect screen quantity and length match the vent
+    if (formData.vent_insect_screen?.[0]) {
+      formData.vent_insect_screen[0].quantity = formData.vent_quantity;
+      formData.vent_insect_screen[0].length = formData.vent_length;
+    }
+
+    onSubmit({
+      ...formData,
+      drive_id: selectedDriveId
+    });
   };
 
   return (
@@ -209,7 +455,7 @@ export default function VentForm({ vent, onSubmit, onCancel }: VentFormProps) {
             id="vent_type"
             name="vent_type"
             value={formData.vent_type}
-            onChange={handleChange}
+            onChange={handleVentTypeChange}
             className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white 
                      focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500
                      transition-colors duration-200 ease-in-out shadow-sm
@@ -335,29 +581,49 @@ export default function VentForm({ vent, onSubmit, onCancel }: VentFormProps) {
         </div>
       </div>
       
-      <div>
-        <label htmlFor="vent_drive" className="block text-sm font-medium text-gray-300 mb-1">
+      {/* Drive Selection */}
+      <div className="mb-4">
+        <label htmlFor="drive_id" className="block text-sm font-medium text-gray-700">
           Vent Drive
         </label>
         <select
-          id="vent_drive"
+          id="drive_id"
+          name="drive_id"
           value={selectedDriveId || ''}
-          onChange={(e) => setSelectedDriveId(e.target.value || null)}
+          onChange={(e) => {
+            const driveId = e.target.value;
+            console.log('Drive selected:', {
+              driveId,
+              availableDrives: availableDrives.map(d => ({
+                id: d.drive_id,
+                specs: d.motor_specifications
+              }))
+            });
+            setSelectedDriveId(driveId);
+            setFormData(prev => ({
+              ...prev,
+              drive_id: driveId
+            }));
+          }}
           className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white 
                    focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500
                    transition-colors duration-200 ease-in-out shadow-sm
                    appearance-none [-webkit-appearance:none] [-moz-appearance:none]
                    bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22%23FFFFFF%22%20d%3D%22M4.646%205.646a.5.5%200%200%201%20.708%200L8%208.293l2.646-2.647a.5.5%200%200%201%20.708.708l-3%203a.5.5%200%200%201-.708%200l-3-3a.5.5%200%200%201%200-.708z%22%2F%3E%3C%2Fsvg%3E')]
-                   bg-no-repeat bg-[length:16px_16px] bg-[right_0.5rem_center]"
+                     bg-no-repeat bg-[length:16px_16px] bg-[right_0.5rem_center]"
         >
           <option value="">Select a drive</option>
-          {availableDrives.map(drive => (
+          {availableDrives.map((drive) => (
             <option key={drive.drive_id} value={drive.drive_id}>
-              {drive.drive_type} - {drive.motor_specifications || 'No specs'} 
-              {drive.vent_size ? ` (up to ${drive.vent_size}ft)` : ''}
+              {`${drive.motor_specifications || 'Motor'} - ${drive.vent_type} - Max: ${drive.vent_size}ft`}
             </option>
           ))}
         </select>
+        {selectedDriveId && (
+          <p className="mt-1 text-sm text-gray-500">
+            {availableDrives.find(d => d.drive_id === selectedDriveId)?.motor_specifications}
+          </p>
+        )}
       </div>
 
       <div>
@@ -376,16 +642,18 @@ export default function VentForm({ vent, onSubmit, onCancel }: VentFormProps) {
       </div>
 
       <div className="flex flex-col">
-        <label htmlFor="insect_screen_type" className="mb-1 text-sm font-medium text-gray-300">
+        <label htmlFor="insect_screen_type" className="block text-sm font-medium text-gray-300 mb-1">
           Insect Screen Type
         </label>
         <select
           id="insect_screen_type"
           name="insect_screen_type"
-          value={formData.insect_screen_type}
+          value={formData.vent_insect_screen?.[0]?.type || ''}
           onChange={handleChange}
-          className="bg-gray-700 text-white rounded px-3 py-2 w-full
-                   focus:outline-none focus:ring-2 focus:ring-blue-500
+          className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white 
+                   focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500
+                   transition-colors duration-200 ease-in-out shadow-sm
+                   appearance-none [-webkit-appearance:none] [-moz-appearance:none]
                    bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2216%22%20height%3D%2216%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22%23FFFFFF%22%20d%3D%22M4.646%205.646a.5.5%200%200%201%20.708%200L8%208.293l2.646-2.647a.5.5%200%200%201%20.708.708l-3%203a.5.5%200%200%201-.708%200l-3-3a.5.5%200%200%201%200-.708z%22%2F%3E%3C%2Fsvg%3E')]
                    bg-no-repeat bg-[length:16px_16px] bg-[right_0.5rem_center]"
         >
@@ -398,37 +666,54 @@ export default function VentForm({ vent, onSubmit, onCancel }: VentFormProps) {
         </select>
       </div>
 
-      {formData.insect_screen_type && (
+      {formData.vent_insect_screen && (
         <>
           <div className="flex flex-col">
-            <label htmlFor="insect_screen_quantity" className="mb-1 text-sm font-medium text-gray-300">
-              Insect Screen Quantity
+            <label htmlFor="insect_screen_width" className="block text-sm font-medium text-gray-300 mb-1">
+              Insect Screen Width (ft)
+            </label>
+            <input
+              type="number"
+              id="insect_screen_width"
+              name="insect_screen_width"
+              value={formData.vent_insect_screen?.[0]?.width || 0}
+              onChange={handleChange}
+              min="0"
+              step="0.01"
+              className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white 
+                       focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500
+                       transition-colors duration-200 ease-in-out shadow-sm
+                       [-webkit-appearance:none] [-moz-appearance:textfield]
+                       [&::-webkit-outer-spin-button]:appearance-none
+                       [&::-webkit-inner-spin-button]:appearance-none"
+            />
+          </div>
+
+          <div className="flex flex-col">
+            <label htmlFor="insect_screen_quantity" className="block text-sm font-medium text-gray-300 mb-1">
+              Insect Screen Quantity (auto-filled from vent)
             </label>
             <input
               type="number"
               id="insect_screen_quantity"
               name="insect_screen_quantity"
-              value={formData.insect_screen_quantity}
-              onChange={handleChange}
-              min="1"
-              className="bg-gray-700 text-white rounded px-3 py-2 w-full
-                       focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={formData.vent_insect_screen?.[0]?.quantity || 1}
+              disabled
+              className="w-full bg-gray-600 border border-gray-600 rounded-lg px-3 py-2 text-gray-400 cursor-not-allowed"
             />
           </div>
 
           <div className="flex flex-col">
-            <label htmlFor="insect_screen_length" className="mb-1 text-sm font-medium text-gray-300">
-              Insect Screen Length (ft)
+            <label htmlFor="insect_screen_length" className="block text-sm font-medium text-gray-300 mb-1">
+              Insect Screen Length (auto-filled from vent)
             </label>
             <input
               type="number"
               id="insect_screen_length"
               name="insect_screen_length"
-              value={formData.insect_screen_length}
-              onChange={handleChange}
-              min="1"
-              className="bg-gray-700 text-white rounded px-3 py-2 w-full
-                       focus:outline-none focus:ring-2 focus:ring-blue-500"
+              value={formData.vent_insect_screen?.[0]?.length || 1}
+              disabled
+              className="w-full bg-gray-600 border border-gray-600 rounded-lg px-3 py-2 text-gray-400 cursor-not-allowed"
             />
           </div>
         </>

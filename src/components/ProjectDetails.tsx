@@ -12,7 +12,27 @@ type StructureUpdate = Database['public']['Tables']['structures']['Update'];
 type StructureUserEntry = Database['public']['Tables']['structure_user_entries']['Row'];
 
 // Combined type for the structure and user entry
-type CombinedStructure = Structure & Omit<StructureUserEntry, 'structure_id'>;
+interface CombinedStructure {
+  structure_id: string;
+  model: string;
+  length: number;
+  length_ft: number;
+  spacing: number;
+  project_name: string;
+  description: string;
+  zones: number;
+  ranges: number;
+  houses: number;
+  width_ft: number;
+  eave_height: number;
+  roof_glazing: string;
+  covering_roof: string;
+  covering_sidewalls: string;
+  covering_endwalls: string;
+  covering_gables: string;
+  gutter_partitions: number;
+  gable_partitions: number;
+}
 
 interface ProjectDetailsProps {
   structureId: string;
@@ -85,6 +105,14 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
               drive_id,
               drive_type,
               motor_specifications
+            ),
+            vent_insect_screen (
+              type,
+              quantity,
+              length,
+              width,
+              total_sqft,
+              notes
             )
           `)
           .eq('structure_id', structureId);
@@ -214,64 +242,50 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
     }));
   };
 
-  const handleAddVent = async (ventData: any) => {
+  const handleAddVent = async (ventPayload: any) => {
     try {
-      // Log the incoming data
-      console.log('ProjectDetails - Received vent data:', ventData);
-      
-      // Separate vent and insect screen data
-      const { 
-        vent_insect_screen,
-        insect_screen_type,
-        insect_screen_quantity,
-        insect_screen_length,
-        ...ventPayload 
-      } = ventData;
+      setError(null);
+      console.log('Adding vent with payload:', ventPayload);
 
-      // First insert the vent
+      // Create the vent
       const { data: newVent, error: ventError } = await supabase
         .from('vents')
-        .insert([{ 
-          ...ventPayload, 
-          structure_id: structureId
+        .insert([{
+          structure_id: structureId,
+          vent_type: ventPayload.vent_type,
+          single_double: ventPayload.single_double,
+          vent_size: ventPayload.vent_size,
+          vent_quantity: ventPayload.vent_quantity,
+          vent_length: ventPayload.vent_length,
+          ati_house: ventPayload.ati_house,
+          notes: ventPayload.notes,
+          drive_id: ventPayload.drive_id
         }])
         .select()
         .single();
 
-      if (ventError) {
-        console.error('Error creating vent:', ventError);
-        throw ventError;
-      }
+      if (ventError) throw ventError;
 
-      console.log('ProjectDetails - Created vent:', newVent);
-
-      // If there's insect screen data, create it
-      if (insect_screen_type && newVent) {
-        // Create the insect screen with the correct fields based on the actual database schema
+      // If there's an insect screen, create it
+      if (ventPayload.vent_insect_screen?.[0]) {
         const screenData = {
           vent_id: newVent.vent_id,
-          type: insect_screen_type,
-          quantity: insect_screen_quantity || 1,
-          length: insect_screen_length || 1,
-          notes: ventPayload.notes || ''
+          type: ventPayload.vent_insect_screen[0].type,
+          quantity: ventPayload.vent_quantity, // Use vent quantity
+          length: ventPayload.vent_length, // Use vent length
+          width: ventPayload.vent_insect_screen[0].width,
+          notes: ventPayload.notes
         };
-
-        console.log('ProjectDetails - Creating insect screen with data:', screenData);
 
         const { error: screenError } = await supabase
           .from('vent_insect_screen')
           .insert([screenData]);
 
-        if (screenError) {
-          console.error('Error creating insect screen:', screenError);
-          // If insect screen creation fails, delete the vent to maintain consistency
-          await supabase.from('vents').delete().eq('vent_id', newVent.vent_id);
-          throw screenError;
-        }
+        if (screenError) throw screenError;
       }
 
-      // Fetch the complete vent data including the drive and insect screen
-      const { data: completeVent, error: fetchError } = await supabase
+      // Refresh the vents data with a complete query
+      const { data: refreshedVentData, error: refreshError } = await supabase
         .from('vents')
         .select(`
           vent_id,
@@ -288,94 +302,62 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
             motor_specifications
           ),
           vent_insect_screen (
-            screen_id,
             type,
             quantity,
             length,
+            width,
+            total_sqft,
             notes
           )
         `)
-        .eq('vent_id', newVent.vent_id)
-        .single();
+        .eq('structure_id', structureId);
 
-      if (fetchError) throw fetchError;
-
-      // Update the vents list with the new vent
-      setVents([...vents, completeVent]);
+      if (refreshError) throw refreshError;
+      setVents(refreshedVentData || []);
       setShowVentForm(false);
-    } catch (error) {
-      console.error('Error adding vent:', error);
-      setError(error instanceof Error ? error.message : 'Failed to add vent');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred while creating the vent');
     }
   };
 
-  const handleUpdateVent = async (ventId: string, ventData: any) => {
+  const handleUpdateVent = async (ventId: string, ventPayload: any) => {
     try {
-      // Separate vent and insect screen data
-      const { 
-        vent_insect_screen,
-        insect_screen_type,
-        insect_screen_quantity,
-        insect_screen_length,
-        ...ventPayload 
-      } = ventData;
+      setError(null);
 
       // Update the vent
       const { error: ventError } = await supabase
         .from('vents')
-        .update(ventPayload)
+        .update({
+          vent_type: ventPayload.vent_type,
+          single_double: ventPayload.single_double,
+          vent_size: ventPayload.vent_size,
+          vent_quantity: ventPayload.vent_quantity,
+          vent_length: ventPayload.vent_length,
+          ati_house: ventPayload.ati_house,
+          notes: ventPayload.notes
+        })
         .eq('vent_id', ventId);
 
       if (ventError) throw ventError;
 
-      // Handle insect screen
-      if (vent_insect_screen) {
-        // Check if insect screen exists
-        const { data: existingScreen } = await supabase
+      // If there's an insect screen, update it with the new vent quantity and length
+      if (ventPayload.vent_insect_screen?.[0]) {
+        const { error: screenError } = await supabase
           .from('vent_insect_screen')
-          .select('screen_id')
-          .eq('vent_id', ventId)
-          .maybeSingle();
-
-        if (existingScreen) {
-          // Update existing screen
-          const screenData = {
-            type: vent_insect_screen.type,
-            quantity: vent_insect_screen.quantity,
-            length: vent_insect_screen.length,
+          .update({
+            type: ventPayload.vent_insect_screen[0].type,
+            quantity: ventPayload.vent_quantity, // Use the vent's quantity
+            length: ventPayload.vent_length, // Use the vent's length
+            width: ventPayload.vent_insect_screen[0].width,
             notes: ventPayload.notes
-          };
-          const { error: screenError } = await supabase
-            .from('vent_insect_screen')
-            .update(screenData)
-            .eq('vent_id', ventId);
+          })
+          .eq('vent_id', ventId);
 
-          if (screenError) {
-            console.error('Error updating screen:', screenError);
-            throw screenError;
-          }
-        } else {
-          // Create new screen
-          const screenData = {
-            vent_id: ventId,
-            type: vent_insect_screen.type,
-            quantity: vent_insect_screen.quantity,
-            length: vent_insect_screen.length,
-            notes: ventPayload.notes
-          };
-          const { error: screenError } = await supabase
-            .from('vent_insect_screen')
-            .insert([screenData]);
-
-          if (screenError) {
-            console.error('Error creating screen:', screenError);
-            throw screenError;
-          }
-        }
+        if (screenError) throw screenError;
       }
 
-      // Fetch updated vent with all related data
-      const { data: updatedVent, error: fetchError } = await supabase
+      // Refresh the vents data with a complete query
+      const { data: refreshedVentData, error: refreshError } = await supabase
         .from('vents')
         .select(`
           vent_id,
@@ -392,24 +374,22 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
             motor_specifications
           ),
           vent_insect_screen (
-            screen_id,
             type,
             quantity,
             length,
+            width,
+            total_sqft,
             notes
           )
         `)
-        .eq('vent_id', ventId)
-        .single();
+        .eq('structure_id', structureId);
 
-      if (fetchError) throw fetchError;
-
-      setVents(vents.map(v => v.vent_id === ventId ? updatedVent : v));
-      setEditingVent(null);
+      if (refreshError) throw refreshError;
+      setVents(refreshedVentData || []);
       setShowVentForm(false);
+      setEditingVent(null);
     } catch (err) {
-      console.error('Error updating vent:', err);
-      setError(err instanceof Error ? err.message : 'Failed to update vent');
+      setError(err instanceof Error ? err.message : 'An error occurred while updating the vent');
     }
   };
 
@@ -661,7 +641,19 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
             <div className="flex justify-between">
               <dt>Spacing:</dt>
               <dd className="font-medium">
-                {structure.spacing ? `${structure.spacing} ft` : 'N/A'}
+                {isEditing ? (
+                  <input
+                    type="number"
+                    name="spacing"
+                    value={editedStructure?.spacing}
+                    onChange={handleInputChange}
+                    min={1}
+                    max={10}
+                    className="bg-gray-700 border border-gray-600 rounded w-20 px-2 py-1"
+                  />
+                ) : (
+                  structure.spacing ? `${structure.spacing} ft` : 'N/A'
+                )}
               </dd>
             </div>
             <div className="flex justify-between">
@@ -958,20 +950,22 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
         </div>
 
         {showVentForm && (
-          <VentForm
-            vent={editingVent}
-            onSubmit={(data) => {
-              if (editingVent) {
-                handleUpdateVent(editingVent.vent_id, data);
-              } else {
-                handleAddVent(data);
-              }
-            }}
-            onCancel={() => {
-              setShowVentForm(false);
-              setEditingVent(null);
-            }}
-          />
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <VentForm
+                vent={editingVent}
+                onSubmit={editingVent ? handleUpdateVent.bind(null, editingVent.vent_id) : handleAddVent}
+                onCancel={() => {
+                  setShowVentForm(false);
+                  setEditingVent(null);
+                }}
+                structure={{
+                  model: structure?.model || '',
+                  length: structure?.length_ft || 0
+                }}
+              />
+            </div>
+          </div>
         )}
 
         <div className="space-y-4">
@@ -999,6 +993,8 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                         <p>Type: {vent.vent_insect_screen[0].type}</p>
                         <p>Quantity: {vent.vent_insect_screen[0].quantity}</p>
                         <p>Length: {vent.vent_insect_screen[0].length}'</p>
+                        <p>Width: {vent.vent_insect_screen[0].width}'</p>
+                        <p>Total Area: {vent.vent_insect_screen[0].total_sqft} sq ft</p>
                         {vent.vent_insect_screen[0].notes && (
                           <p>Notes: {vent.vent_insect_screen[0].notes}</p>
                         )}

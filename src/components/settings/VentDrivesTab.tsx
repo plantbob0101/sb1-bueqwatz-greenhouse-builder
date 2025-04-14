@@ -6,7 +6,7 @@ interface VentDrive {
   drive_id: string;
   drive_type: 'Motorized' | 'Manual';
   vent_type: string;
-  vent_size: number;
+  vent_size: number; // This represents the maximum length the drive can handle
   motor_specifications: string | null;
   compatible_structures: string[];
   created_at: string;
@@ -33,7 +33,7 @@ export default function VentDrivesTab() {
   const [formData, setFormData] = useState<Partial<VentDrive>>({
     drive_type: 'Motorized',
     vent_type: 'Continental Roof',
-    vent_size: undefined,
+    vent_size: 160, // Default max length of 160 feet
     motor_specifications: '',
     compatible_structures: []
   });
@@ -52,7 +52,15 @@ export default function VentDrivesTab() {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setDrives(data || []);
+      
+      // Map the data to include default values for missing fields
+      const processedData = (data || []).map(drive => ({
+        ...drive,
+        vent_size: drive.vent_size || 160, // Default to 160 feet if not specified
+        compatible_structures: drive.compatible_structures || []
+      })) as VentDrive[];
+      
+      setDrives(processedData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load vent drives');
     } finally {
@@ -64,20 +72,49 @@ export default function VentDrivesTab() {
     e.preventDefault();
     setError(null);
 
+    // Log full form data for debugging
+    console.log('Submitting vent drive data:', formData);
+
     try {
+      // Create a clean object with only the fields that definitely exist in the database
+      const baseData = {
+        drive_type: formData.drive_type || 'Motorized',
+        vent_type: formData.vent_type || 'Continental Roof',
+        vent_size: formData.vent_size || 0,
+        motor_specifications: formData.motor_specifications || '',
+        compatible_structures: formData.compatible_structures || []
+      };
+
+      // If we're editing, we need the drive_id too
+      const finalData = editingDrive 
+        ? { ...baseData }  
+        : baseData;
+      
+      console.log('Cleaned data to submit:', finalData);
+
       if (editingDrive) {
-        const { error } = await supabase
+        console.log('Updating drive with ID:', editingDrive.drive_id);
+        const { data, error } = await supabase
           .from('vent_drives')
-          .update(formData)
+          .update(finalData)
           .eq('drive_id', editingDrive.drive_id);
 
-        if (error) throw error;
+        if (error) {
+          console.error('Update error details:', error);
+          throw error;
+        }
+        console.log('Update successful, response:', data);
       } else {
-        const { error } = await supabase
+        console.log('Inserting new drive');
+        const { data, error } = await supabase
           .from('vent_drives')
-          .insert([formData]);
+          .insert([finalData]);
 
-        if (error) throw error;
+        if (error) {
+          console.error('Insert error details:', error);
+          throw error;
+        }
+        console.log('Insert successful, response:', data);
       }
 
       await loadDrives();
@@ -86,7 +123,7 @@ export default function VentDrivesTab() {
       setFormData({
         drive_type: 'Motorized',
         vent_type: 'Continental Roof',
-        vent_size: undefined,
+        vent_size: 160,
         motor_specifications: '',
         compatible_structures: []
       });
@@ -185,7 +222,7 @@ export default function VentDrivesTab() {
             setFormData({
               drive_type: 'Motorized',
               vent_type: 'Continental Roof',
-              vent_size: undefined,
+              vent_size: 160,
               motor_specifications: '',
               compatible_structures: []
             });
@@ -255,7 +292,7 @@ export default function VentDrivesTab() {
 
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Maximum Drive Length (up to ft)
+                  Maximum Drive Length (ft)
                 </label>
                 <div className="relative">
                   <input
@@ -335,7 +372,7 @@ export default function VentDrivesTab() {
               <tr className="bg-gray-750">
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Drive Type</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Vent Type</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Max Length</th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Max Length (ft)</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Motor Specs</th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Compatible</th>
                 <th className="px-6 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">Actions</th>
