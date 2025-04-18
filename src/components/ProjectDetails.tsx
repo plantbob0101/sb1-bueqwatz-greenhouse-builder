@@ -40,6 +40,25 @@ interface ProjectDetailsProps {
   onDelete: () => void;
 }
 
+// --- CurtainFabric type for local use ---
+type CurtainFabric = {
+  fabric_id: string;
+  fabric_name: string;
+  fabric_type: 'Shade' | 'Blackout' | 'Insect Screen';
+  price_0_5000: number;
+  price_5000_20000: number;
+  price_20000_plus: number;
+};
+
+// --- Helper to get curtain fabric price for area ---
+function getCurtainFabricPrice(fabric: CurtainFabric | null, area: number): number | null {
+  if (!fabric) return null;
+  if (area > 0 && area <= 5000) return fabric.price_0_5000;
+  if (area > 5000 && area <= 20000) return fabric.price_5000_20000;
+  if (area > 20000) return fabric.price_20000_plus;
+  return null;
+}
+
 export default function ProjectDetails({ structureId, onBack, onDelete }: ProjectDetailsProps) {
   const [structure, setStructure] = useState<CombinedStructure | null>(null);
   const [loading, setLoading] = useState(true);
@@ -64,6 +83,8 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
   const GLAZING_TYPES = ['CPC', 'PC8', 'Poly'] as const;
   
   const [rollupWallDrives, setRollupWallDrives] = useState<Record<string, any>>({});
+
+  const [curtainFabrics, setCurtainFabrics] = useState<CurtainFabric[]>([]);
 
   useEffect(() => {
     async function fetchStructure() {
@@ -111,7 +132,6 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
               quantity,
               length,
               width,
-              total_sqft,
               notes
             )
           `)
@@ -147,6 +167,18 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
 
     fetchStructure();
   }, [structureId]);
+
+  useEffect(() => {
+    async function fetchFabrics() {
+      const { data, error } = await supabase
+        .from('curtain_fabrics')
+        .select('*')
+        .eq('fabric_type', 'Insect Screen');
+      if (!error && data) setCurtainFabrics(data);
+      else setCurtainFabrics([]);
+    }
+    fetchFabrics();
+  }, []);
 
   useEffect(() => {
     if (rollupWalls.length > 0) {
@@ -268,10 +300,11 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
 
       // If there's an insect screen, create it
       if (ventPayload.vent_insect_screen?.[0]) {
+        const configMultiplier = ventPayload.single_double === 'Double' ? 2 : 1;
         const screenData = {
           vent_id: newVent.vent_id,
           type: ventPayload.vent_insect_screen[0].type,
-          quantity: ventPayload.vent_quantity, // Use vent quantity
+          quantity: ventPayload.vent_quantity * configMultiplier, // Use vent quantity x config
           length: ventPayload.vent_length, // Use vent length
           width: ventPayload.vent_insect_screen[0].width,
           notes: ventPayload.notes
@@ -306,7 +339,6 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
             quantity,
             length,
             width,
-            total_sqft,
             notes
           )
         `)
@@ -342,12 +374,13 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
 
       // If there's an insect screen, update it with the new vent quantity and length
       if (ventPayload.vent_insect_screen?.[0]) {
+        const configMultiplier = ventPayload.single_double === 'Double' ? 2 : 1;
         const { error: screenError } = await supabase
           .from('vent_insect_screen')
           .update({
             type: ventPayload.vent_insect_screen[0].type,
-            quantity: ventPayload.vent_quantity, // Use the vent's quantity
-            length: ventPayload.vent_length, // Use the vent's length
+            quantity: ventPayload.vent_quantity * configMultiplier, // Use vent quantity x config
+            length: ventPayload.vent_length, // Use vent length
             width: ventPayload.vent_insect_screen[0].width,
             notes: ventPayload.notes
           })
@@ -378,7 +411,6 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
             quantity,
             length,
             width,
-            total_sqft,
             notes
           )
         `)
@@ -972,55 +1004,74 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
           {vents.length === 0 ? (
             <p className="text-gray-400 text-center py-4">No vents added yet</p>
           ) : (
-            vents.map((vent) => (
-              <div
-                key={vent.vent_id}
-                className="bg-gray-750 p-4 rounded-lg flex items-center justify-between"
-              >
-                <div className="space-y-1">
-                  <h4 className="font-medium">{vent.vent_type}</h4>
-                  <div className="text-sm text-gray-400 space-y-1">
-                    <p>Size: {vent.vent_size}" ({vent.single_double})</p>
-                    <p>Quantity: {vent.vent_quantity}</p>
-                    <p>Length: {vent.vent_length}'</p>
-                    <p>ATI House: {vent.ati_house}</p>
-                    <p>Drive: {vent.drive ? `${vent.drive.drive_type} - ${vent.drive.motor_specifications || 'No specs'}` : 'No drive selected'}</p>
-                    
-                    {/* Display insect screen information if available */}
-                    {vent.vent_insect_screen && vent.vent_insect_screen.length > 0 && (
-                      <div className="mt-2 pt-2 border-t border-gray-700">
-                        <p className="font-medium text-emerald-400">Insect Screen:</p>
-                        <p>Type: {vent.vent_insect_screen[0].type}</p>
-                        <p>Quantity: {vent.vent_insect_screen[0].quantity}</p>
-                        <p>Length: {vent.vent_insect_screen[0].length}'</p>
-                        <p>Width: {vent.vent_insect_screen[0].width}'</p>
-                        <p>Total Area: {vent.vent_insect_screen[0].total_sqft} sq ft</p>
-                        {vent.vent_insect_screen[0].notes && (
-                          <p>Notes: {vent.vent_insect_screen[0].notes}</p>
-                        )}
-                      </div>
-                    )}
+            vents.map((vent) => {
+              let curtainPrice: number | null = null;
+              let totalArea = 0;
+              let notes = null;
+              if (
+                vent.vent_insect_screen &&
+                vent.vent_insect_screen.length > 0
+              ) {
+                const screen = vent.vent_insect_screen[0];
+                totalArea = screen.quantity * screen.length * screen.width;
+                const fabric = curtainFabrics.find(f => f.fabric_name === screen.type);
+                curtainPrice = getCurtainFabricPrice(fabric || null, totalArea);
+                notes = screen.notes;
+              }
+              return (
+                <div
+                  key={vent.vent_id}
+                  className="bg-gray-750 p-4 rounded-lg flex items-center justify-between"
+                >
+                  <div className="space-y-1">
+                    <h4 className="font-medium">{vent.vent_type}</h4>
+                    <div className="text-sm text-gray-400 space-y-1">
+                      <p>Size: {vent.vent_size}" ({vent.single_double})</p>
+                      <p>Quantity: {vent.vent_quantity}</p>
+                      <p>Length: {vent.vent_length}'</p>
+                      <p>ATI House: {vent.ati_house}</p>
+                      <p>Drive: {vent.drive ? `${vent.drive.drive_type} - ${vent.drive.motor_specifications || 'No specs'}` : 'No drive selected'}</p>
+                      {/* Display insect screen information if available */}
+                      {vent.vent_insect_screen && vent.vent_insect_screen.length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-gray-700">
+                          <p className="font-medium text-emerald-400">Insect Screen:</p>
+                          <p>Type: {vent.vent_insect_screen[0].type}</p>
+                          <p>Quantity: {vent.vent_insect_screen[0].quantity}</p>
+                          <p>Length: {vent.vent_insect_screen[0].length}'</p>
+                          <p>Width: {vent.vent_insect_screen[0].width}'</p>
+                          <p>Total Area: {totalArea.toFixed(2)} sq ft</p>
+                          {curtainPrice !== null ? (
+                            <p className="text-emerald-400 font-semibold mt-1">Curtain Fabric Price: ${curtainPrice}</p>
+                          ) : (
+                            <p className="text-red-400 font-semibold mt-1">No price available for this area.</p>
+                          )}
+                          {notes && (
+                            <p>Notes: {notes}</p>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setEditingVent(vent);
+                        setShowVentForm(true);
+                      }}
+                      className="p-2 hover:bg-gray-700 rounded-lg transition-colors text-emerald-500"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteVent(vent.vent_id)}
+                      className="p-2 hover:bg-gray-700 rounded-lg transition-colors text-red-500"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      setEditingVent(vent);
-                      setShowVentForm(true);
-                    }}
-                    className="p-2 hover:bg-gray-700 rounded-lg transition-colors text-emerald-500"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteVent(vent.vent_id)}
-                    className="p-2 hover:bg-gray-700 rounded-lg transition-colors text-red-500"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       </div>

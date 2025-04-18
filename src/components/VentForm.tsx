@@ -42,6 +42,15 @@ interface VentDrive {
   max_length: number;
 }
 
+interface CurtainFabric {
+  fabric_id: string;
+  fabric_name: string;
+  fabric_type: 'Shade' | 'Blackout' | 'Insect Screen';
+  price_0_5000: number;
+  price_5000_20000: number;
+  price_20000_plus: number;
+}
+
 const CONFIGURATIONS = ['Single', 'Double'];
 
 const ATI_HOUSE_OPTIONS = ['Yes', 'No'] as const;
@@ -117,7 +126,7 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
   const [availableSizes, setAvailableSizes] = useState<number[]>(DEFAULT_VENT_SIZES[formData.vent_type]);
   const [availableDrives, setAvailableDrives] = useState<VentDrive[]>([]);
   const [selectedDriveId, setSelectedDriveId] = useState<string | null>(vent?.drive_id || null);
-  const [insectScreenFabrics, setInsectScreenFabrics] = useState<string[]>([]);
+  const [insectScreenFabricOptions, setInsectScreenFabricOptions] = useState<CurtainFabric[]>([]);
 
   useEffect(() => {
     console.log('Initial form data:', {
@@ -155,17 +164,16 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
 
   useEffect(() => {
     async function loadInsectScreenFabrics() {
-      try {
-        const { data, error } = await supabase
-          .from('curtain_fabrics')
-          .select('fabric_name')
-          .eq('fabric_type', 'Insect Screen')
-          .order('fabric_name');
-
-        if (error) throw error;
-        setInsectScreenFabrics(data?.map(item => item.fabric_name) || []);
-      } catch (err) {
-        console.error('Error loading insect screen fabrics:', err);
+      const { data, error } = await supabase
+        .from('curtain_fabrics')
+        .select('*')
+        .eq('fabric_type', 'Insect Screen')
+        .order('fabric_name');
+      if (!error) {
+        setInsectScreenFabricOptions(data || []);
+      } else {
+        setInsectScreenFabricOptions([]);
+        console.error('Error loading insect screen fabrics:', error);
       }
     }
 
@@ -347,6 +355,56 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
     }
   }, [selectedDriveId, availableDrives]);
 
+  useEffect(() => {
+    // Only update if insect screen is enabled
+    if (
+      formData.vent_insect_screen &&
+      formData.vent_insect_screen.length > 0 &&
+      typeof formData.vent_size === 'number' &&
+      formData.vent_size > 0
+    ) {
+      // Convert vent_size from inches to feet (rounded to 2 decimals)
+      const widthFeet = Math.round((formData.vent_size / 12) * 100) / 100;
+      // Only update if not already set or if different
+      if (formData.vent_insect_screen[0].width !== widthFeet) {
+        setFormData(prev => {
+          const updated = { ...prev };
+          if (updated.vent_insect_screen && updated.vent_insect_screen.length > 0) {
+            updated.vent_insect_screen = [
+              { ...updated.vent_insect_screen[0], width: widthFeet }
+            ];
+          }
+          return updated;
+        });
+      }
+    }
+  }, [formData.vent_size, formData.vent_insect_screen]);
+
+  useEffect(() => {
+    // --- AUTO SYNC INSECT SCREEN QUANTITY FROM VENT CONFIGURATION ---
+    if (
+      formData.vent_insect_screen &&
+      formData.vent_insect_screen.length > 0 &&
+      typeof formData.vent_quantity === 'number' &&
+      formData.vent_quantity > 0
+    ) {
+      // Configuration: 1 for Single, 2 for Double
+      const configMultiplier = formData.single_double === 'Double' ? 2 : 1;
+      const correctQuantity = formData.vent_quantity * configMultiplier;
+      if (formData.vent_insect_screen[0].quantity !== correctQuantity) {
+        setFormData(prev => {
+          const updated = { ...prev };
+          if (updated.vent_insect_screen && updated.vent_insect_screen.length > 0) {
+            updated.vent_insect_screen = [
+              { ...updated.vent_insect_screen[0], quantity: correctQuantity }
+            ];
+          }
+          return updated;
+        });
+      }
+    }
+  }, [formData.vent_quantity, formData.single_double, formData.vent_insect_screen]);
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     console.log('Form field changed:', { name: e.target.name, value: e.target.value });
     const { name, value, type } = e.target;
@@ -443,6 +501,18 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
       drive_id: selectedDriveId
     });
   };
+
+  const selectedInsectScreenFabric = insectScreenFabricOptions.find(
+    f => f.fabric_name === formData.vent_insect_screen?.[0]?.type
+  );
+
+  const totalArea = (formData.vent_insect_screen?.[0]?.quantity || 0) * (formData.vent_insect_screen?.[0]?.length || 0) * (formData.vent_insect_screen?.[0]?.width || 0);
+  let curtainPrice: number | null = null;
+  if (selectedInsectScreenFabric) {
+    if (totalArea > 0 && totalArea <= 5000) curtainPrice = selectedInsectScreenFabric.price_0_5000;
+    else if (totalArea > 5000 && totalArea <= 20000) curtainPrice = selectedInsectScreenFabric.price_5000_20000;
+    else if (totalArea > 20000) curtainPrice = selectedInsectScreenFabric.price_20000_plus;
+  }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4 mb-6">
@@ -581,6 +651,35 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
         </div>
       </div>
       
+      {/* --- TOTAL VENT AREA --- */}
+      <div className="flex flex-col mb-4">
+        <label className="block text-sm font-medium text-gray-300 mb-1">
+          Total Vent Area (sq ft)
+        </label>
+        <div className="text-lg font-semibold text-emerald-300">
+          {(() => {
+            const ventQty = Number(formData.vent_quantity) || 0;
+            const ventLength = Number(formData.vent_length) || 0;
+            const ventSizeInches = Number(formData.vent_size) || 0;
+            const ventConfig = formData.single_double === 'Double' ? 2 : 1;
+            // Area = quantity * config multiplier * (length * width in ft)
+            const widthFeet = ventSizeInches / 12;
+            const totalArea = ventQty * ventConfig * ventLength * widthFeet;
+            return totalArea > 0 ? totalArea.toFixed(2) : '0.00';
+          })()}
+        </div>
+        {selectedInsectScreenFabric && curtainPrice !== null && (
+          <div className="text-emerald-400 font-semibold mt-1">
+            Curtain Fabric Price: ${curtainPrice}
+          </div>
+        )}
+        {selectedInsectScreenFabric && curtainPrice === null && (
+          <div className="text-red-400 font-semibold mt-1">
+            No price available for this area.
+          </div>
+        )}
+      </div>
+      
       {/* Drive Selection */}
       <div className="mb-4">
         <label htmlFor="drive_id" className="block text-sm font-medium text-gray-700">
@@ -658,9 +757,9 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
                    bg-no-repeat bg-[length:16px_16px] bg-[right_0.5rem_center]"
         >
           <option value="">No Insect Screen</option>
-          {insectScreenFabrics?.map(fabric => (
-            <option key={fabric} value={fabric}>
-              {fabric}
+          {insectScreenFabricOptions?.map(fabric => (
+            <option key={fabric.fabric_name} value={fabric.fabric_name}>
+              {fabric.fabric_name}
             </option>
           ))}
         </select>
@@ -677,7 +776,7 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
               id="insect_screen_width"
               name="insect_screen_width"
               value={formData.vent_insect_screen?.[0]?.width || 0}
-              onChange={handleChange}
+              onChange={() => {}} // Prevent manual editing
               min="0"
               step="0.01"
               className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white 
@@ -686,6 +785,7 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
                        [-webkit-appearance:none] [-moz-appearance:textfield]
                        [&::-webkit-outer-spin-button]:appearance-none
                        [&::-webkit-inner-spin-button]:appearance-none"
+              disabled
             />
           </div>
 
