@@ -549,7 +549,7 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
   
   // Calculate total area and determine price tier
   const totalArea = minimumFabricWidth * (formData.vent_insect_screen?.[0]?.length || 0) * 
-                   (formData.vent_insect_screen?.[0]?.quantity || 0);
+                   (formData.vent_quantity || 0);
                    
   let fabricPricePerSqFt: number | null = null;
   if (selectedInsectScreenFabric) {
@@ -915,7 +915,7 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
                 
                 <div className="text-gray-300">Total Linear Feet to Cut:</div>
                 <div className="text-emerald-400 font-bold">
-                  {formData.vent_insect_screen?.[0]?.length || 0} ft × {formData.vent_insect_screen?.[0]?.quantity || 0} units = {((formData.vent_insect_screen?.[0]?.length || 0) * (formData.vent_insect_screen?.[0]?.quantity || 0)).toFixed(1)} ft
+                  {formData.vent_insect_screen?.[0]?.length || 0} ft × {formData.vent_quantity || 0} units = {((formData.vent_insect_screen?.[0]?.length || 0) * (formData.vent_quantity || 0)).toFixed(1)} ft
                 </div>
               </div>
             </div>

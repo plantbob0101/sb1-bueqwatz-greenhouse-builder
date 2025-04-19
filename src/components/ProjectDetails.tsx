@@ -48,6 +48,7 @@ type CurtainFabric = {
   price_0_5000: number;
   price_5000_20000: number;
   price_20000_plus: number;
+  width_size: number[];
 };
 
 // --- Helper to get curtain fabric price for area ---
@@ -1013,6 +1014,8 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
               let curtainPrice: number | null = null;
               let totalArea = 0;
               let notes = null;
+              let minFabricWidth = 0;
+              let fabricArea = 0;
               if (
                 vent.vent_insect_screen &&
                 vent.vent_insect_screen.length > 0
@@ -1020,7 +1023,12 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                 const screen = vent.vent_insect_screen[0];
                 totalArea = screen.quantity * screen.length * screen.width;
                 const fabric = curtainFabrics.find(f => f.fabric_name === screen.type);
-                curtainPrice = getCurtainFabricPrice(fabric || null, totalArea);
+                if (fabric && fabric.width_size.length > 0) {
+                  const sorted = [...fabric.width_size].sort((a, b) => a - b);
+                  minFabricWidth = sorted.find(w => w >= screen.width) || sorted[0];
+                }
+                fabricArea = minFabricWidth * screen.length * vent.vent_quantity;
+                curtainPrice = getCurtainFabricPrice(fabric || null, fabricArea);
                 notes = screen.notes;
               }
               return (
@@ -1044,14 +1052,15 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                           <p>Quantity: {vent.vent_insect_screen[0].quantity}</p>
                           <p>Length: {vent.vent_insect_screen[0].length}'</p>
                           <p>Width: {vent.vent_insect_screen[0].width}'</p>
-                          <p>Total Area: {totalArea.toFixed(2)} sq ft</p>
+                          <p>Total Area: {fabricArea.toFixed(2)} sq ft</p>
                           {curtainPrice !== null ? (
                             <p className="text-emerald-400 font-semibold mt-1">Curtain Fabric Price: ${curtainPrice}</p>
                           ) : (
                             <p className="text-red-400 font-semibold mt-1">No price available for this area.</p>
                           )}
-                          <p className="text-emerald-400 font-bold mt-1">Total Linear Feet to Cut: {(vent.vent_insect_screen[0].length * vent.vent_insect_screen[0].quantity).toFixed(1)} ft</p>
+                          <p className="text-emerald-400 font-bold mt-1">Total Linear Feet to Cut: {(vent.vent_insect_screen[0].length * vent.vent_quantity).toFixed(1)} ft</p>
                           <p className="text-emerald-400 font-bold mt-1">Slitting Fee: ${(vent.vent_insect_screen[0].slitting_fee || 0.22).toFixed(3)} per linear foot</p>
+                          <p className="text-emerald-400 font-bold mt-1">Fabric Total Area: {fabricArea.toFixed(2)} sq ft (using {minFabricWidth.toFixed(1)}' width)</p>
                           {notes && (
                             <p>Notes: {notes}</p>
                           )}
