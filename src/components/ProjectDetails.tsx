@@ -132,7 +132,8 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
               quantity,
               length,
               width,
-              notes
+              notes,
+              slitting_fee
             )
           `)
           .eq('structure_id', structureId);
@@ -307,7 +308,8 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
           quantity: ventPayload.vent_quantity * configMultiplier, // Use vent quantity x config
           length: ventPayload.vent_length, // Use vent length
           width: ventPayload.vent_insect_screen[0].width,
-          notes: ventPayload.notes
+          notes: ventPayload.notes,
+          slitting_fee: ventPayload.vent_insect_screen[0].slitting_fee || 0.22 // Add slitting fee
         };
 
         const { error: screenError } = await supabase
@@ -339,7 +341,8 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
             quantity,
             length,
             width,
-            notes
+            notes,
+            slitting_fee
           )
         `)
         .eq('structure_id', structureId);
@@ -382,7 +385,8 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
             quantity: ventPayload.vent_quantity * configMultiplier, // Use vent quantity x config
             length: ventPayload.vent_length, // Use vent length
             width: ventPayload.vent_insect_screen[0].width,
-            notes: ventPayload.notes
+            notes: ventPayload.notes,
+            slitting_fee: ventPayload.vent_insect_screen[0].slitting_fee || 0.22 // Preserve slitting fee
           })
           .eq('vent_id', ventId);
 
@@ -411,7 +415,8 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
             quantity,
             length,
             width,
-            notes
+            notes,
+            slitting_fee
           )
         `)
         .eq('structure_id', structureId);
@@ -1045,6 +1050,8 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                           ) : (
                             <p className="text-red-400 font-semibold mt-1">No price available for this area.</p>
                           )}
+                          <p className="text-emerald-400 font-bold mt-1">Total Linear Feet to Cut: {(vent.vent_insect_screen[0].length * vent.vent_insect_screen[0].quantity).toFixed(1)} ft</p>
+                          <p className="text-emerald-400 font-bold mt-1">Slitting Fee: ${(vent.vent_insect_screen[0].slitting_fee || 0.22).toFixed(3)} per linear foot</p>
                           {notes && (
                             <p>Notes: {notes}</p>
                           )}

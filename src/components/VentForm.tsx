@@ -17,6 +17,7 @@ interface VentData {
     length: number;
     width: number;
     notes?: string;
+    slitting_fee?: number;
   }[];
 }
 
@@ -49,6 +50,7 @@ interface CurtainFabric {
   price_0_5000: number;
   price_5000_20000: number;
   price_20000_plus: number;
+  width_size: string[];
 }
 
 const CONFIGURATIONS = ['Single', 'Double'];
@@ -127,6 +129,7 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
   const [availableDrives, setAvailableDrives] = useState<VentDrive[]>([]);
   const [selectedDriveId, setSelectedDriveId] = useState<string | null>(vent?.drive_id || null);
   const [insectScreenFabricOptions, setInsectScreenFabricOptions] = useState<CurtainFabric[]>([]);
+  const [slittingFee, setSlittingFee] = useState<number>(0.22); // Default slitting fee
 
   useEffect(() => {
     console.log('Initial form data:', {
@@ -396,14 +399,18 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
           const updated = { ...prev };
           if (updated.vent_insect_screen && updated.vent_insect_screen.length > 0) {
             updated.vent_insect_screen = [
-              { ...updated.vent_insect_screen[0], quantity: correctQuantity }
+              { 
+                ...updated.vent_insect_screen[0], 
+                quantity: correctQuantity,
+                slitting_fee: slittingFee // Ensure slitting fee is carried over
+              }
             ];
           }
           return updated;
         });
       }
     }
-  }, [formData.vent_quantity, formData.single_double, formData.vent_insect_screen]);
+  }, [formData.vent_quantity, formData.single_double, formData.vent_insect_screen, slittingFee]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     console.log('Form field changed:', { name: e.target.name, value: e.target.value });
@@ -424,7 +431,8 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
           newData.vent_insect_screen = [{
             ...prev.vent_insect_screen[0],
             quantity: name === 'vent_quantity' ? parseFloat(value) : prev.vent_insect_screen[0].quantity,
-            length: name === 'vent_length' ? parseFloat(value) : prev.vent_insect_screen[0].length
+            length: name === 'vent_length' ? parseFloat(value) : prev.vent_insect_screen[0].length,
+            slitting_fee: slittingFee
           }];
         }
       }
@@ -436,11 +444,22 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
             type: value,
             quantity: prev.vent_quantity,
             length: prev.vent_length,
-            width: prev.vent_insect_screen?.[0]?.width || 0
+            width: prev.vent_insect_screen?.[0]?.width || 0,
+            slitting_fee: slittingFee
           }];
         } else {
           newData.vent_insect_screen = undefined;
         }
+      }
+
+      // Handle slitting fee change
+      if (name === 'slitting_fee' && prev.vent_insect_screen?.[0]) {
+        const fee = parseFloat(value);
+        newData.vent_insect_screen = [{
+          ...prev.vent_insect_screen[0],
+          slitting_fee: isNaN(fee) ? 0.22 : fee
+        }];
+        setSlittingFee(isNaN(fee) ? 0.22 : fee);
       }
 
       // Handle insect screen width
@@ -506,12 +525,37 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
     f => f.fabric_name === formData.vent_insect_screen?.[0]?.type
   );
 
-  const totalArea = (formData.vent_insect_screen?.[0]?.quantity || 0) * (formData.vent_insect_screen?.[0]?.length || 0) * (formData.vent_insect_screen?.[0]?.width || 0);
-  let curtainPrice: number | null = null;
+  // Find minimum width from available widths that can accommodate the vent
+  const getMinimumFabricWidth = () => {
+    if (!selectedInsectScreenFabric || !selectedInsectScreenFabric.width_size || !formData.vent_size) {
+      return 0;
+    }
+    
+    // Convert vent size from inches to feet
+    const ventWidthFeet = formData.vent_size / 12;
+    
+    // Sort width_size array numerically (they're stored as strings)
+    const sortedWidths = [...selectedInsectScreenFabric.width_size]
+      .map(w => parseFloat(w))
+      .sort((a, b) => a - b);
+    
+    // Find the smallest width that's greater than or equal to the vent width
+    const minWidth = sortedWidths.find(width => width >= ventWidthFeet);
+    
+    return minWidth || sortedWidths[sortedWidths.length - 1] || 0;
+  };
+
+  const minimumFabricWidth = getMinimumFabricWidth();
+  
+  // Calculate total area and determine price tier
+  const totalArea = minimumFabricWidth * (formData.vent_insect_screen?.[0]?.length || 0) * 
+                   (formData.vent_insect_screen?.[0]?.quantity || 0);
+                   
+  let fabricPricePerSqFt: number | null = null;
   if (selectedInsectScreenFabric) {
-    if (totalArea > 0 && totalArea <= 5000) curtainPrice = selectedInsectScreenFabric.price_0_5000;
-    else if (totalArea > 5000 && totalArea <= 20000) curtainPrice = selectedInsectScreenFabric.price_5000_20000;
-    else if (totalArea > 20000) curtainPrice = selectedInsectScreenFabric.price_20000_plus;
+    if (totalArea > 0 && totalArea <= 5000) fabricPricePerSqFt = selectedInsectScreenFabric.price_0_5000;
+    else if (totalArea > 5000 && totalArea <= 20000) fabricPricePerSqFt = selectedInsectScreenFabric.price_5000_20000;
+    else if (totalArea > 20000) fabricPricePerSqFt = selectedInsectScreenFabric.price_20000_plus;
   }
 
   return (
@@ -668,12 +712,12 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
             return totalArea > 0 ? totalArea.toFixed(2) : '0.00';
           })()}
         </div>
-        {selectedInsectScreenFabric && curtainPrice !== null && (
+        {selectedInsectScreenFabric && fabricPricePerSqFt !== null && (
           <div className="text-emerald-400 font-semibold mt-1">
-            Curtain Fabric Price: ${curtainPrice}
+            Curtain Fabric Price: ${fabricPricePerSqFt.toFixed(3)}
           </div>
         )}
-        {selectedInsectScreenFabric && curtainPrice === null && (
+        {selectedInsectScreenFabric && fabricPricePerSqFt === null && (
           <div className="text-red-400 font-semibold mt-1">
             No price available for this area.
           </div>
@@ -787,6 +831,32 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
                        [&::-webkit-inner-spin-button]:appearance-none"
               disabled
             />
+            {minimumFabricWidth > 0 && (
+              <p className="mt-1 text-sm text-emerald-400">
+                Using minimum fabric width: {minimumFabricWidth.toFixed(1)}' (from available sizes: {selectedInsectScreenFabric?.width_size.join(', ')})
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-col">
+            <label htmlFor="slitting_fee" className="block text-sm font-medium text-gray-300 mb-1">
+              Slitting Fee ($ per linear foot)
+            </label>
+            <input
+              type="number"
+              id="slitting_fee"
+              name="slitting_fee"
+              value={slittingFee}
+              onChange={(e) => setSlittingFee(parseFloat(e.target.value) || 0.22)}
+              min="0"
+              step="0.01"
+              className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white 
+                       focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500
+                       transition-colors duration-200 ease-in-out shadow-sm
+                       [-webkit-appearance:none] [-moz-appearance:textfield]
+                       [&::-webkit-outer-spin-button]:appearance-none
+                       [&::-webkit-inner-spin-button]:appearance-none"
+            />
           </div>
 
           <div className="flex flex-col">
@@ -816,6 +886,40 @@ export default function VentForm({ vent, onSubmit, onCancel, structure }: VentFo
               className="w-full bg-gray-600 border border-gray-600 rounded-lg px-3 py-2 text-gray-400 cursor-not-allowed"
             />
           </div>
+
+          {/* Insect Screen Pricing Information */}
+          {selectedInsectScreenFabric && (
+            <div className="mt-4 p-4 bg-gray-800 rounded-lg">
+              <h3 className="text-lg font-medium text-emerald-400 mb-2">Insect Screen Fabric Pricing</h3>
+              
+              <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="text-gray-300">Total Area:</div>
+                <div className="text-white font-medium">{totalArea.toFixed(2)} sq ft</div>
+                
+                <div className="text-gray-300">Price Tier:</div>
+                <div className="text-white font-medium">
+                  {totalArea <= 5000 ? '0-5,000 sq ft' : 
+                   totalArea <= 20000 ? '5,000-20,000 sq ft' : 
+                   '20,000+ sq ft'}
+                </div>
+                
+                <div className="text-gray-300">Price per sq ft:</div>
+                <div className="text-emerald-400 font-bold">
+                  {fabricPricePerSqFt !== null ? `$${fabricPricePerSqFt.toFixed(3)}` : 'N/A'}
+                </div>
+                
+                <div className="text-gray-300">Slitting Fee:</div>
+                <div className="text-emerald-400 font-bold">
+                  ${slittingFee.toFixed(3)} per linear foot
+                </div>
+                
+                <div className="text-gray-300">Total Linear Feet to Cut:</div>
+                <div className="text-emerald-400 font-bold">
+                  {formData.vent_insect_screen?.[0]?.length || 0} ft × {formData.vent_insect_screen?.[0]?.quantity || 0} units = {((formData.vent_insect_screen?.[0]?.length || 0) * (formData.vent_insect_screen?.[0]?.quantity || 0)).toFixed(1)} ft
+                </div>
+              </div>
+            </div>
+          )}
         </>
       )}
       
