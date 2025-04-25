@@ -47,7 +47,7 @@ const PC8GlazingTab = () => {
   const loadCompanies = async () => {
     try {
       const { data, error } = await supabase
-        .from('pc8_glazing_materials')
+        .from('glazing_materials')
         .select('*')
         .order('company_name');
 
@@ -263,14 +263,14 @@ const PC8GlazingTab = () => {
                   
                   if (editingCompany) {
                     const { error } = await supabase
-                      .from('pc8_glazing_materials')
+                      .from('glazing_materials')
                       .update(dataToSubmit)
                       .eq('company_id', editingCompany.company_id);
                     
                     if (error) throw error;
                   } else {
                     const { error } = await supabase
-                      .from('pc8_glazing_materials')
+                      .from('glazing_materials')
                       .insert([dataToSubmit])
                       .select();
                     
@@ -485,7 +485,7 @@ const PC8GlazingTab = () => {
                       if (!pendingDeleteId) return;
                       try {
                         const { error } = await supabase
-                          .from('pc8_glazing_materials')
+                          .from('glazing_materials')
                           .delete()
                           .eq('company_id', pendingDeleteId);
                         

@@ -51,14 +51,10 @@ type CurtainFabric = {
   width_size: number[];
 };
 
-// --- Helper to get curtain fabric price for area ---
-function getCurtainFabricPrice(fabric: CurtainFabric | null, area: number): number | null {
-  if (!fabric) return null;
-  if (area > 0 && area <= 5000) return fabric.price_0_5000;
-  if (area > 5000 && area <= 20000) return fabric.price_5000_20000;
-  if (area > 20000) return fabric.price_20000_plus;
-  return null;
-}
+// Calculate the total area for the curtain fabric
+const calculateCurtainArea = (screen: any) => {
+  return screen.quantity * screen.length * screen.width;
+};
 
 export default function ProjectDetails({ structureId, onBack, onDelete }: ProjectDetailsProps) {
   const [structure, setStructure] = useState<CombinedStructure | null>(null);
@@ -171,15 +167,25 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
   }, [structureId]);
 
   useEffect(() => {
-    async function fetchFabrics() {
+    async function loadCurtainFabrics() {
       const { data, error } = await supabase
         .from('curtain_fabrics')
         .select('*')
-        .eq('fabric_type', 'Insect Screen');
-      if (!error && data) setCurtainFabrics(data);
-      else setCurtainFabrics([]);
+        .order('fabric_name');
+
+      if (!error && data) {
+        // Type assertion to ensure the data matches our interface
+        const typedFabrics = data.map(fabric => ({
+          ...fabric,
+          fabric_type: fabric.fabric_type as 'Shade' | 'Blackout' | 'Insect Screen'
+        }));
+        setCurtainFabrics(typedFabrics);
+      } else {
+        console.error('Error loading curtain fabrics:', error);
+      }
     }
-    fetchFabrics();
+
+    loadCurtainFabrics();
   }, []);
 
   useEffect(() => {
@@ -356,38 +362,43 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
     }
   };
 
-  const handleUpdateVent = async (ventId: string, ventPayload: any) => {
+  const handleUpdateVent = async (ventId: string, data: any) => {
+    setLoading(true);
     try {
       setError(null);
+
+      // Calculate the total area for pricing
+      const totalArea = data.vent_length * data.vent_quantity;
+      console.log('Total area for pricing:', totalArea);
 
       // Update the vent
       const { error: ventError } = await supabase
         .from('vents')
         .update({
-          vent_type: ventPayload.vent_type,
-          single_double: ventPayload.single_double,
-          vent_size: ventPayload.vent_size,
-          vent_quantity: ventPayload.vent_quantity,
-          vent_length: ventPayload.vent_length,
-          ati_house: ventPayload.ati_house,
-          notes: ventPayload.notes
+          vent_type: data.vent_type,
+          single_double: data.single_double,
+          vent_size: data.vent_size,
+          vent_quantity: data.vent_quantity,
+          vent_length: data.vent_length,
+          ati_house: data.ati_house,
+          notes: data.notes
         })
         .eq('vent_id', ventId);
 
       if (ventError) throw ventError;
 
       // If there's an insect screen, update it with the new vent quantity and length
-      if (ventPayload.vent_insect_screen?.[0]) {
-        const configMultiplier = ventPayload.single_double === 'Double' ? 2 : 1;
+      if (data.vent_insect_screen?.[0]) {
+        const configMultiplier = data.single_double === 'Double' ? 2 : 1;
         const { error: screenError } = await supabase
           .from('vent_insect_screen')
           .update({
-            type: ventPayload.vent_insect_screen[0].type,
-            quantity: ventPayload.vent_quantity * configMultiplier, // Use vent quantity x config
-            length: ventPayload.vent_length, // Use vent length
-            width: ventPayload.vent_insect_screen[0].width,
-            notes: ventPayload.notes,
-            slitting_fee: ventPayload.vent_insect_screen[0].slitting_fee || 0.22 // Preserve slitting fee
+            type: data.vent_insect_screen[0].type,
+            quantity: data.vent_quantity * configMultiplier, // Use vent quantity x config
+            length: data.vent_length, // Use vent length
+            width: data.vent_insect_screen[0].width,
+            notes: data.notes,
+            slitting_fee: data.vent_insect_screen[0].slitting_fee || 0.22 // Preserve slitting fee
           })
           .eq('vent_id', ventId);
 
@@ -428,6 +439,8 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
       setEditingVent(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred while updating the vent');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -1016,19 +1029,30 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
               let notes = null;
               let minFabricWidth = 0;
               let fabricArea = 0;
+              let pricePerSqFt = 0;
+
               if (
                 vent.vent_insect_screen &&
                 vent.vent_insect_screen.length > 0
               ) {
                 const screen = vent.vent_insect_screen[0];
-                totalArea = screen.quantity * screen.length * screen.width;
+                totalArea = calculateCurtainArea(screen);
                 const fabric = curtainFabrics.find(f => f.fabric_name === screen.type);
                 if (fabric && fabric.width_size.length > 0) {
                   const sorted = [...fabric.width_size].sort((a, b) => a - b);
                   minFabricWidth = sorted.find(w => w >= screen.width) || sorted[0];
                 }
                 fabricArea = minFabricWidth * screen.length * vent.vent_quantity;
-                curtainPrice = getCurtainFabricPrice(fabric || null, fabricArea);
+                if (fabric) {
+                  if (fabricArea > 0 && fabricArea <= 5000) {
+                    pricePerSqFt = fabric.price_0_5000;
+                  } else if (fabricArea > 5000 && fabricArea <= 20000) {
+                    pricePerSqFt = fabric.price_5000_20000;
+                  } else if (fabricArea > 20000) {
+                    pricePerSqFt = fabric.price_20000_plus;
+                  }
+                  curtainPrice = fabricArea * pricePerSqFt;
+                }
                 notes = screen.notes;
               }
               return (
@@ -1052,15 +1076,16 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                           <p>Quantity: {vent.vent_insect_screen[0].quantity}</p>
                           <p>Length: {vent.vent_insect_screen[0].length}'</p>
                           <p>Width: {vent.vent_insect_screen[0].width}'</p>
-                          <p>Total Area: {fabricArea.toFixed(2)} sq ft</p>
+                          <p>Total Area: {totalArea.toFixed(2)} sq ft</p>
+                          <p>Fabric Area: {fabricArea.toFixed(2)} sq ft (using {minFabricWidth.toFixed(1)}' width)</p>
                           {curtainPrice !== null ? (
-                            <p className="text-emerald-400 font-semibold mt-1">Curtain Fabric Price: ${curtainPrice}</p>
+                            <p className="text-emerald-400 font-semibold mt-1">Curtain Fabric Price: ${curtainPrice.toFixed(2)}</p>
                           ) : (
                             <p className="text-red-400 font-semibold mt-1">No price available for this area.</p>
                           )}
+                          <p className="text-emerald-400 font-bold mt-1">Price per Square Foot: ${pricePerSqFt.toFixed(2)}</p>
                           <p className="text-emerald-400 font-bold mt-1">Total Linear Feet to Cut: {(vent.vent_insect_screen[0].length * vent.vent_quantity).toFixed(1)} ft</p>
                           <p className="text-emerald-400 font-bold mt-1">Slitting Fee: ${(vent.vent_insect_screen[0].slitting_fee || 0.22).toFixed(3)} per linear foot</p>
-                          <p className="text-emerald-400 font-bold mt-1">Fabric Total Area: {fabricArea.toFixed(2)} sq ft (using {minFabricWidth.toFixed(1)}' width)</p>
                           {notes && (
                             <p>Notes: {notes}</p>
                           )}
@@ -1111,20 +1136,18 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
         </div>
 
         {showRollupWallForm && (
-          <RollupWallForm
-            wall={editingRollupWall}
-            onSubmit={(data) => {
-              if (editingRollupWall) {
-                handleUpdateRollupWall(editingRollupWall.rollup_wall_id, data);
-              } else {
-                handleAddRollupWall(data);
-              }
-            }}
-            onCancel={() => {
-              setShowRollupWallForm(false);
-              setEditingRollupWall(null);
-            }}
-          />
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <RollupWallForm
+                rollupWall={editingRollupWall}
+                onSubmit={editingRollupWall ? handleUpdateRollupWall.bind(null, editingRollupWall.rollup_wall_id) : handleAddRollupWall}
+                onCancel={() => {
+                  setShowRollupWallForm(false);
+                  setEditingRollupWall(null);
+                }}
+              />
+            </div>
+          </div>
         )}
 
         <div className="space-y-4">
