@@ -511,54 +511,75 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
     }
   };
 
-  const handleAddDropWall = async (wallData: any) => {
-    try {
-      const { data, error } = await supabase
-        .from('drop_walls')
-        .insert([{ ...wallData, structure_id: structureId }])
-        .select()
-        .single();
-
-      if (error) throw error;
-      setDropWalls([...dropWalls, data]);
-      setShowDropWallForm(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add drop wall');
-    }
-  };
-
-  const handleUpdateDropWall = async (wallId: string, wallData: any) => {
+  const handleAddDropWall = async (data: any) => {
+    setLoading(true);
     try {
       const { error } = await supabase
         .from('drop_walls')
-        .update(wallData)
-        .eq('drop_wall_id', wallId);
+        .insert([{
+          ...data,
+          structure_id: structureId
+        }]);
 
       if (error) throw error;
-
-      setDropWalls(walls => walls.map(w => 
-        w.drop_wall_id === wallId ? { ...w, ...wallData } : w
-      ));
-      setEditingDropWall(null);
       setShowDropWallForm(false);
+      loadDropWalls();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update drop wall');
+      setError(err instanceof Error ? err.message : 'Failed to add drop wall');
+    } finally {
+      setLoading(false);
     }
   };
 
-  const handleDeleteDropWall = async (wallId: string) => {
-    if (!window.confirm('Are you sure you want to delete this drop wall?')) return;
+  const handleUpdateDropWall = async (dropWallId: string, data: any) => {
+    setLoading(true);
+    try {
+      const { error } = await supabase
+        .from('drop_walls')
+        .update(data)
+        .eq('drop_wall_id', dropWallId);
 
+      if (error) throw error;
+      setShowDropWallForm(false);
+      setEditingDropWall(null);
+      loadDropWalls();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update drop wall');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteDropWall = async (dropWallId: string) => {
+    if (!confirm('Are you sure you want to delete this drop wall?')) return;
+    
+    setLoading(true);
     try {
       const { error } = await supabase
         .from('drop_walls')
         .delete()
-        .eq('drop_wall_id', wallId);
+        .eq('drop_wall_id', dropWallId);
 
       if (error) throw error;
-      setDropWalls(walls => walls.filter(w => w.drop_wall_id !== wallId));
+      loadDropWalls();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete drop wall');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadDropWalls = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('drop_walls')
+        .select('*')
+        .eq('structure_id', structureId);
+
+      if (error) throw error;
+      setDropWalls(data || []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load drop walls');
     }
   };
 
@@ -1196,92 +1217,88 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
       </div>
 
       <div className="bg-gray-800 p-6 rounded-lg">
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
-            <Wind className="w-5 h-5 text-emerald-500" />
-            <h3 className="text-lg font-semibold">Drop Walls</h3>
-          </div>
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-medium text-white flex items-center gap-2">
+            Drop Walls
+          </h3>
           <button
             onClick={() => {
               setEditingDropWall(null);
               setShowDropWallForm(true);
             }}
-            className="flex items-center gap-2 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors text-sm"
+            className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium text-white transition-colors"
           >
-            <Plus className="w-4 h-4" />
             Add Drop Wall
           </button>
         </div>
 
-        {showDropWallForm && (
-          <DropWallForm
-            wall={editingDropWall}
-            onSubmit={(data) => {
-              if (editingDropWall) {
-                handleUpdateDropWall(editingDropWall.drop_wall_id, data);
-              } else {
-                handleAddDropWall(data);
-              }
-            }}
-            onCancel={() => {
-              setShowDropWallForm(false);
-              setEditingDropWall(null);
-            }}
-          />
-        )}
-
-        <div className="space-y-4">
-          {dropWalls.length === 0 ? (
-            <p className="text-gray-400 text-center py-4">No drop walls added yet</p>
-          ) : (
-            dropWalls.map((wall) => (
+        {dropWalls.length === 0 ? (
+          <p className="text-gray-400 text-center py-4">No drop walls added yet</p>
+        ) : (
+          <div className="grid grid-cols-1 gap-4">
+            {dropWalls.map((wall) => (
               <div
                 key={wall.drop_wall_id}
-                className="bg-gray-750 p-4 rounded-lg flex items-center justify-between"
+                className="bg-gray-800 rounded-lg p-4 space-y-2"
               >
-                <div className="space-y-1">
-                  <h4 className="font-medium">Drop Wall ({wall.type})</h4>
-                  <div className="text-sm text-gray-400 space-y-1">
-                    <p>Dimensions: {wall.wall_height}' × {wall.wall_length}'</p>
-                    <p>Drive: {wall.drive_type}
-                      {wall.drive_type === 'Motorized' && wall.motor_model 
-                        ? ` - ${wall.motor_model}`
-                        : ''}
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h4 className="text-white font-medium">
+                      {wall.type} Drop Wall
+                    </h4>
+                    <p className="text-gray-400">
+                      {wall.wall_length}' x {wall.wall_height}'
                     </p>
-                    <p>Quantity: {wall.quantity}</p>
-                    <p>NS30: {wall.ns30}</p>
-                    <p>Spacing: {wall.spacing}</p>
-                    <p>ATI House: {wall.ati_house}</p>
-                    {wall.braking_winch_with_mount > 0 && (
-                      <p>Braking Winch: {wall.braking_winch_with_mount}</p>
-                    )}
-                    {wall.additional_corner_pockets > 0 && (
-                      <p>Corner Pockets: {wall.additional_corner_pockets}</p>
+                    <p className="text-gray-400">
+                      Drive Type: {wall.drive_type}
+                      {wall.motor_model && ` (${wall.motor_model})`}
+                    </p>
+                    <p className="text-gray-400">
+                      NS30: {wall.ns30} | Spacing: {wall.spacing} | ATI House: {wall.ati_house}
+                    </p>
+                    <p className="text-gray-400">
+                      Quantity: {wall.quantity}
+                    </p>
+                    {wall.notes && (
+                      <p className="text-gray-400 mt-2">
+                        Notes: {wall.notes}
+                      </p>
                     )}
                   </div>
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => {
-                      setEditingDropWall(wall);
-                      setShowDropWallForm(true);
-                    }}
-                    className="p-2 hover:bg-gray-700 rounded-lg transition-colors text-emerald-500"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteDropWall(wall.drop_wall_id)}
-                    className="p-2 hover:bg-gray-700 rounded-lg transition-colors text-red-500"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setEditingDropWall(wall);
+                        setShowDropWallForm(true);
+                      }}
+                      className="p-1 text-gray-400 hover:text-white"
+                    >
+                      <Edit2 size={16} />
+                    </button>
+                    <button
+                      onClick={() => handleDeleteDropWall(wall.drop_wall_id)}
+                      className="p-1 text-gray-400 hover:text-red-500"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </div>
               </div>
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
       </div>
+
+      {showDropWallForm && (
+        <DropWallForm
+          wall={editingDropWall}
+          onSubmit={editingDropWall ? handleUpdateDropWall.bind(null, editingDropWall.drop_wall_id) : handleAddDropWall}
+          onCancel={() => {
+            setShowDropWallForm(false);
+            setEditingDropWall(null);
+          }}
+        />
+      )}
 
       <div className="bg-gray-800 p-6 rounded-lg">
         <div className="flex items-center gap-3 mb-4">
