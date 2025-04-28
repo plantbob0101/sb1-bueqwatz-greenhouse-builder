@@ -15,6 +15,7 @@ DROP POLICY IF EXISTS "enable_read_for_authenticated" ON vent_drives;
 DROP POLICY IF EXISTS "enable_read_for_authenticated" ON rollup_drop_drives;
 
 -- Add comprehensive policies for curtain_fabrics
+DROP POLICY IF EXISTS "enable_all_operations_for_authenticated" ON curtain_fabrics;
 CREATE POLICY "enable_all_operations_for_authenticated"
 ON curtain_fabrics
 FOR ALL
@@ -23,6 +24,7 @@ USING (true)
 WITH CHECK (true);
 
 -- Add comprehensive policies for glazing_companies_pc8
+DROP POLICY IF EXISTS "enable_all_operations_for_authenticated" ON glazing_companies_pc8;
 CREATE POLICY "enable_all_operations_for_authenticated"
 ON glazing_companies_pc8
 FOR ALL
@@ -31,6 +33,7 @@ USING (true)
 WITH CHECK (true);
 
 -- Add comprehensive policies for glazing_companies_poly
+DROP POLICY IF EXISTS "enable_all_operations_for_authenticated" ON glazing_companies_poly;
 CREATE POLICY "enable_all_operations_for_authenticated"
 ON glazing_companies_poly
 FOR ALL
@@ -39,6 +42,7 @@ USING (true)
 WITH CHECK (true);
 
 -- Add comprehensive policies for vent_drives
+DROP POLICY IF EXISTS "enable_all_operations_for_authenticated" ON vent_drives;
 CREATE POLICY "enable_all_operations_for_authenticated"
 ON vent_drives
 FOR ALL
@@ -47,6 +51,7 @@ USING (true)
 WITH CHECK (true);
 
 -- Add comprehensive policies for rollup_drop_drives
+DROP POLICY IF EXISTS "enable_all_operations_for_authenticated" ON rollup_drop_drives;
 CREATE POLICY "enable_all_operations_for_authenticated"
 ON rollup_drop_drives
 FOR ALL

@@ -514,18 +514,24 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
   const handleAddDropWall = async (data: any) => {
     setLoading(true);
     try {
-      const { error } = await supabase
+      const payload = { ...data, structure_id: structureId };
+      console.log('DropWall insert payload:', payload);
+      const { error, data: insertData } = await supabase
         .from('drop_walls')
-        .insert([{
-          ...data,
-          structure_id: structureId
-        }]);
+        .insert([payload]);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase insert error:', error);
+        alert(`Error inserting drop wall: ${error.message}`);
+        return;
+      }
+      // Optionally, handle success
+      console.log('DropWall insert success:', insertData);
       setShowDropWallForm(false);
       loadDropWalls();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to add drop wall');
+      console.error('Unexpected error inserting drop wall:', err);
+      alert(`Unexpected error: ${err}`);
     } finally {
       setLoading(false);
     }

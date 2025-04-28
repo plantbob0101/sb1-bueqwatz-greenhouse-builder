@@ -29,7 +29,7 @@ export default function DropWallForm({ wall, onSubmit, onCancel }: DropWallFormP
     drive_type: wall?.drive_type || 'Manual',
     motor_model: wall?.motor_model || '',
     ns30: wall?.ns30 || 'No',
-    spacing: wall?.spacing || '6\'',
+    spacing: wall?.spacing || '4',
     ati_house: wall?.ati_house || 'No',
     quantity: wall?.quantity || 1,
     braking_winch_with_mount: wall?.braking_winch_with_mount || 0,
@@ -195,9 +195,9 @@ export default function DropWallForm({ wall, onSubmit, onCancel }: DropWallFormP
                   onChange={handleChange}
                   className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
                 >
-                  <option value="4'">4'</option>
-                  <option value="6'">6'</option>
-                  <option value="12'">12'</option>
+                  <option value="4">4</option>
+                  <option value="6">6</option>
+                  <option value="12">12</option>
                 </select>
               </div>
 
