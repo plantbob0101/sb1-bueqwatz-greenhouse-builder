@@ -1285,6 +1285,7 @@ export type Database = {
           created_at: string | null
           drive_id: string
           drive_type: string
+          max_length: number
           motor_specifications: string | null
           updated_at: string | null
           vent_size: number
@@ -1295,6 +1296,7 @@ export type Database = {
           created_at?: string | null
           drive_id?: string
           drive_type: string
+          max_length?: number
           motor_specifications?: string | null
           updated_at?: string | null
           vent_size: number
@@ -1305,6 +1307,7 @@ export type Database = {
           created_at?: string | null
           drive_id?: string
           drive_type?: string
+          max_length?: number
           motor_specifications?: string | null
           updated_at?: string | null
           vent_size?: number
@@ -1330,7 +1333,6 @@ export type Database = {
           type: string
           updated_at: string | null
           vent_id: string | null
-          width: number
         }
         Insert: {
           created_at?: string | null
@@ -1341,7 +1343,6 @@ export type Database = {
           type: string
           updated_at?: string | null
           vent_id?: string | null
-          width?: number
         }
         Update: {
           created_at?: string | null
@@ -1352,7 +1353,6 @@ export type Database = {
           type?: string
           updated_at?: string | null
           vent_id?: string | null
-          width?: number
         }
         Relationships: [
           {

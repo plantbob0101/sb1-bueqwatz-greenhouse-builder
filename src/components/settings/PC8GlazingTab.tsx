@@ -5,20 +5,18 @@ import { supabase } from '../../lib/supabase';
 interface PC8Company {
   company_id: string;
   company_name: string;
-  product: string;
-  type: 'PC8' | 'CPC';
+  product: string | null;
+  type: string;
   light_transmittance: number;
   light_diffusion: number;
-  width_size: string[];
+  width_size?: string[];
   price_0_5000: number;
   price_5000_10000: number;
   price_10000_50000: number;
   price_50000_plus: number;
-  created_at?: string;
-  updated_at?: string;
+  created_at?: string | null | undefined;
+  updated_at?: string | null | undefined;
 }
-
-const GLAZING_TYPES = ['PC8', 'CPC'] as const;
 
 const PC8GlazingTab = () => {
   const [loading, setLoading] = useState(true);
@@ -47,7 +45,7 @@ const PC8GlazingTab = () => {
   const loadCompanies = async () => {
     try {
       const { data, error } = await supabase
-        .from('glazing_materials')
+        .from('glazing_companies_pc8')
         .select('*')
         .order('company_name');
 
@@ -86,14 +84,14 @@ const PC8GlazingTab = () => {
 
   const handleEdit = (company: PC8Company) => {
     setEditingCompany(company);
-    setWidthSizeInput(company.width_size.join(', '));
+    setWidthSizeInput(company.width_size?.join(', ') ?? '');
     setFormData({
       company_name: company.company_name,
-      product: company.product,
+      product: company.product ?? '',
       type: company.type,
-      light_transmittance: company.light_transmittance,
-      light_diffusion: company.light_diffusion,
-      width_size: company.width_size,
+      light_transmittance: company.light_transmittance * 100, // Multiply by 100 for display
+      light_diffusion: company.light_diffusion * 100, // Multiply by 100 for display
+      width_size: company.width_size ?? [],
       price_0_5000: company.price_0_5000,
       price_5000_10000: company.price_5000_10000,
       price_10000_50000: company.price_10000_50000,
@@ -178,19 +176,19 @@ const PC8GlazingTab = () => {
                         <div className="text-sm font-medium text-white">{company.company_name}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-white">{company.product || '-'}</div>
+                        <div className="text-sm text-white">{company.product ?? '-'}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="text-sm text-white">{company.type}</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-white">{company.light_transmittance.toFixed(1)}%</div>
+                        <div className="text-sm text-white">{(company.light_transmittance * 100).toFixed(1)}%</div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm text-white">{company.light_diffusion.toFixed(1)}%</div>
+                        <div className="text-sm text-white">{(company.light_diffusion * 100).toFixed(1)}%</div>
                       </td>
                       <td className="px-6 py-4">
-                        <div className="text-sm text-white">{company.width_size.map(w => parseFloat(w).toFixed(1)).join(', ')} ft</div>
+                        <div className="text-sm text-white">{company.width_size?.map(w => parseFloat(w).toFixed(1)).join(', ') ?? '-'} ft</div>
                       </td>
                       <td className="px-6 py-4">
                         <div className="text-sm text-white space-y-1">
@@ -258,19 +256,21 @@ const PC8GlazingTab = () => {
 
                   const dataToSubmit = {
                     ...formData,
+                    light_transmittance: formData.light_transmittance / 100, // Divide by 100 before submit
+                    light_diffusion: formData.light_diffusion / 100, // Divide by 100 before submit
                     width_size: widths
                   };
                   
                   if (editingCompany) {
                     const { error } = await supabase
-                      .from('glazing_materials')
+                      .from('glazing_companies_pc8')
                       .update(dataToSubmit)
                       .eq('company_id', editingCompany.company_id);
                     
                     if (error) throw error;
                   } else {
                     const { error } = await supabase
-                      .from('glazing_materials')
+                      .from('glazing_companies_pc8')
                       .insert([dataToSubmit])
                       .select();
                     
@@ -311,8 +311,8 @@ const PC8GlazingTab = () => {
                     </label>
                     <input
                       type="text"
-                      value={formData.product}
-                      onChange={(e) => setFormData({ ...formData, product: e.target.value })}
+                      value={formData.product ?? ''}
+                      onChange={(e) => setFormData({ ...formData, product: e.target.value ?? null })}
                       className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
                     />
                   </div>
@@ -325,12 +325,11 @@ const PC8GlazingTab = () => {
                     </label>
                     <select
                       value={formData.type}
-                      onChange={(e) => setFormData({ ...formData, type: e.target.value as 'PC8' | 'CPC' })}
+                      onChange={(e) => setFormData({ ...formData, type: e.target.value })}
                       className="w-full px-3 py-2 bg-gray-700 text-white rounded-md"
                     >
-                      {GLAZING_TYPES.map((type) => (
-                        <option key={type} value={type}>{type}</option>
-                      ))}
+                      <option value="PC8">PC8</option>
+                      <option value="CPC">CPC</option>
                     </select>
                   </div>
                   <div>
@@ -339,7 +338,7 @@ const PC8GlazingTab = () => {
                     </label>
                     <input
                       type="number"
-                      step="0.1"
+                      step="1"
                       min="0"
                       max="100"
                       value={formData.light_transmittance}
@@ -354,7 +353,7 @@ const PC8GlazingTab = () => {
                     </label>
                     <input
                       type="number"
-                      step="0.1"
+                      step="1"
                       min="0"
                       max="100"
                       value={formData.light_diffusion}
@@ -485,7 +484,7 @@ const PC8GlazingTab = () => {
                       if (!pendingDeleteId) return;
                       try {
                         const { error } = await supabase
-                          .from('glazing_materials')
+                          .from('glazing_companies_pc8')
                           .delete()
                           .eq('company_id', pendingDeleteId);
                         
