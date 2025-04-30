@@ -7,6 +7,7 @@ interface DropWallFormProps {
     type: 'Guttered' | 'Quonset';
     wall_length: number;
     wall_height: number;
+    wall_location?: string;
     drive_type: 'Manual' | 'Motorized';
     motor_model?: string;
     ns30?: string;
@@ -19,11 +20,13 @@ interface DropWallFormProps {
   } | null;
   onSubmit: (data: any) => void;
   onCancel: () => void;
+  structureId: string;
 }
 
-export default function DropWallForm({ wall, onSubmit, onCancel }: DropWallFormProps) {
+export default function DropWallForm({ wall, onSubmit, onCancel, structureId }: DropWallFormProps) {
   const [formData, setFormData] = useState({
     type: wall?.type || 'Guttered',
+    wall_location: wall?.wall_location || 'Sidewall',
     wall_length: wall?.wall_length || 0,
     wall_height: wall?.wall_height || 0,
     drive_type: wall?.drive_type || 'Manual',
@@ -116,6 +119,22 @@ export default function DropWallForm({ wall, onSubmit, onCancel }: DropWallFormP
                 >
                   <option value="Guttered">Guttered</option>
                   <option value="Quonset">Quonset</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-300 mb-1">
+                  Wall Location
+                </label>
+                <select
+                  name="wall_location"
+                  value={formData.wall_location}
+                  onChange={handleChange}
+                  required
+                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
+                >
+                  <option value="Sidewall">Sidewall</option>
+                  <option value="Endwall">Endwall</option>
                 </select>
               </div>
 

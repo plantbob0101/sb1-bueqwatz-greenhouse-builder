@@ -7,31 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          operationName?: string
-          query?: string
-          variables?: Json
-          extensions?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       cooling_calculations: {
@@ -401,6 +376,7 @@ export type Database = {
           updated_at: string | null
           wall_height: number
           wall_length: number
+          wall_location: string | null
         }
         Insert: {
           additional_corner_pockets?: number | null
@@ -419,6 +395,7 @@ export type Database = {
           updated_at?: string | null
           wall_height: number
           wall_length: number
+          wall_location?: string | null
         }
         Update: {
           additional_corner_pockets?: number | null
@@ -437,6 +414,7 @@ export type Database = {
           updated_at?: string | null
           wall_height?: number
           wall_length?: number
+          wall_location?: string | null
         }
         Relationships: [
           {
@@ -506,6 +484,7 @@ export type Database = {
           product: string | null
           type: string
           updated_at: string | null
+          width_size: string[]
         }
         Insert: {
           company_id?: string
@@ -520,6 +499,7 @@ export type Database = {
           product?: string | null
           type: string
           updated_at?: string | null
+          width_size?: string[]
         }
         Update: {
           company_id?: string
@@ -534,6 +514,7 @@ export type Database = {
           product?: string | null
           type?: string
           updated_at?: string | null
+          width_size?: string[]
         }
         Relationships: []
       }
@@ -992,6 +973,51 @@ export type Database = {
           },
         ]
       }
+      project_wall_accessories: {
+        Row: {
+          added_by: string | null
+          assembly_number: string
+          created_at: string | null
+          entry_id: string
+          location_description: string | null
+          project_accessory_id: string
+          quantity: number
+        }
+        Insert: {
+          added_by?: string | null
+          assembly_number: string
+          created_at?: string | null
+          entry_id: string
+          location_description?: string | null
+          project_accessory_id?: string
+          quantity: number
+        }
+        Update: {
+          added_by?: string | null
+          assembly_number?: string
+          created_at?: string | null
+          entry_id?: string
+          location_description?: string | null
+          project_accessory_id?: string
+          quantity?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_wall_accessories_assembly_number_fkey"
+            columns: ["assembly_number"]
+            isOneToOne: false
+            referencedRelation: "wall_accessories"
+            referencedColumns: ["assembly_number"]
+          },
+          {
+            foreignKeyName: "project_wall_accessories_entry_id_fkey"
+            columns: ["entry_id"]
+            isOneToOne: false
+            referencedRelation: "structure_user_entries"
+            referencedColumns: ["entry_id"]
+          },
+        ]
+      }
       rollup_drop_drives: {
         Row: {
           compatible_structures: string[]
@@ -1125,14 +1151,18 @@ export type Database = {
           description: string | null
           eave_height: number
           elevation: string
+          endwall_concrete: boolean | null
           entry_id: string
+          gable_partition_concrete: boolean | null
           gable_partitions: number
+          gutter_partition_concrete: boolean | null
           gutter_partitions: number
           houses: number | null
           length_ft: number
           project_name: string | null
           ranges: number | null
           roof_glazing: string
+          sidewall_concrete: boolean | null
           status: string | null
           structural_upgrades: string | null
           structure_id: string | null
@@ -1150,14 +1180,18 @@ export type Database = {
           description?: string | null
           eave_height: number
           elevation: string
+          endwall_concrete?: boolean | null
           entry_id?: string
+          gable_partition_concrete?: boolean | null
           gable_partitions: number
+          gutter_partition_concrete?: boolean | null
           gutter_partitions: number
           houses?: number | null
           length_ft: number
           project_name?: string | null
           ranges?: number | null
           roof_glazing: string
+          sidewall_concrete?: boolean | null
           status?: string | null
           structural_upgrades?: string | null
           structure_id?: string | null
@@ -1175,14 +1209,18 @@ export type Database = {
           description?: string | null
           eave_height?: number
           elevation?: string
+          endwall_concrete?: boolean | null
           entry_id?: string
+          gable_partition_concrete?: boolean | null
           gable_partitions?: number
+          gutter_partition_concrete?: boolean | null
           gutter_partitions?: number
           houses?: number | null
           length_ft?: number
           project_name?: string | null
           ranges?: number | null
           roof_glazing?: string
+          sidewall_concrete?: boolean | null
           status?: string | null
           structural_upgrades?: string | null
           structure_id?: string | null
@@ -1330,9 +1368,12 @@ export type Database = {
           notes: string | null
           quantity: number
           screen_id: string
+          slitting_fee: number | null
+          total_sqft: number | null
           type: string
           updated_at: string | null
           vent_id: string | null
+          width: number
         }
         Insert: {
           created_at?: string | null
@@ -1340,9 +1381,12 @@ export type Database = {
           notes?: string | null
           quantity: number
           screen_id?: string
+          slitting_fee?: number | null
+          total_sqft?: number | null
           type: string
           updated_at?: string | null
           vent_id?: string | null
+          width?: number
         }
         Update: {
           created_at?: string | null
@@ -1350,9 +1394,12 @@ export type Database = {
           notes?: string | null
           quantity?: number
           screen_id?: string
+          slitting_fee?: number | null
+          total_sqft?: number | null
           type?: string
           updated_at?: string | null
           vent_id?: string | null
+          width?: number
         }
         Relationships: [
           {
@@ -1448,20 +1495,45 @@ export type Database = {
           },
         ]
       }
+      wall_accessories: {
+        Row: {
+          assembly_number: string
+          category: string | null
+          description: string
+          notes: string | null
+          unit: string | null
+        }
+        Insert: {
+          assembly_number: string
+          category?: string | null
+          description: string
+          notes?: string | null
+          unit?: string | null
+        }
+        Update: {
+          assembly_number?: string
+          category?: string | null
+          description?: string
+          notes?: string | null
+          unit?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
+      exists: {
+        Args: { schema_name: string; tbl_name: string }
+        Returns: boolean
+      }
       get_first_user_id: {
         Args: Record<PropertyKey, never>
         Returns: string
       }
       has_project_access: {
-        Args: {
-          project_id: string
-          user_id: string
-        }
+        Args: { project_id: string; user_id: string }
         Returns: boolean
       }
     }
@@ -1580,11 +1652,7 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },
 } as const
-

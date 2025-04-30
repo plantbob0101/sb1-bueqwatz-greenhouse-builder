@@ -7,23 +7,20 @@ import RollupWallForm from './RollupWallForm';
 import DropWallForm from './DropWallForm';
 import ShareProjectModal from './ShareProjectModal';
 
-type Structure = Database['public']['Tables']['structures']['Row'];
-type StructureUpdate = Database['public']['Tables']['structures']['Update'];
-type StructureUserEntry = Database['public']['Tables']['structure_user_entries']['Row'];
-
-// Combined type for the structure and user entry
+// Adjusted CombinedStructure Interface
 interface CombinedStructure {
-  structure_id: string;
+  structure_id: string; // From the joined structures table
   model: string;
-  length: number;
-  length_ft: number;
+  length: number; // Derived from length_ft
+  length_ft: number; // From structure_user_entries
+  width: number; // From structures table
+  width_ft: number; // From structure_user_entries
   spacing: number;
   project_name: string;
   description: string;
   zones: number;
   ranges: number;
   houses: number;
-  width_ft: number;
   eave_height: number;
   roof_glazing: string;
   covering_roof: string;
@@ -32,6 +29,14 @@ interface CombinedStructure {
   covering_gables: string;
   gutter_partitions: number;
   gable_partitions: number;
+  load_rating: string;
+  elevation: string;
+  status: string; // Added from structure_user_entries
+  sidewall_concrete: boolean;
+  endwall_concrete: boolean;
+  gutter_partition_concrete: boolean;
+  gable_partition_concrete: boolean;
+  // user_id and created_at might not be needed here unless used for display
 }
 
 interface ProjectDetailsProps {
@@ -64,7 +69,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
   const [editingVent, setEditingVent] = useState<any | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
-  const [editedStructure, setEditedStructure] = useState<StructureUpdate | null>(null);
+  const [editedStructure, setEditedStructure] = useState<CombinedStructure | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -83,29 +88,93 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
 
   const [curtainFabrics, setCurtainFabrics] = useState<CurtainFabric[]>([]);
 
+  const BASE_ANGLE_ASSEMBLY = 'VA820144'; // Example: Base Angle 1-5/8” x 2” x 1-1/2” x 12’
+  const BASE_ANGLE_DESC = 'Base Angle'; // Simplified description for display
+  const BASE_STRINGER_ASSEMBLY = 'VA820016'; // Example: Base Stringer - 4” C-Channel
+  const BASE_STRINGER_DESC = 'Base Stringer'; // Simplified description for display
+
+  type CalculatedComponent = {
+    assemblyNumber: string;
+    description: string;
+    location: string;
+    quantity: number;
+    unit: 'Linear Ft' | 'Each';
+  };
+  const [calculatedBaseComponents, setCalculatedBaseComponents] = useState<CalculatedComponent[]>([]);
+
+  // State for manually added wall accessories
+  type ProjectWallAccessory = {
+    project_wall_accessory_id: string;
+    project_id: string;
+    wall_accessory_id: string;
+    quantity: number;
+    wall_accessories: {
+      // Fields from wall_accessories table
+      assembly_number: string;
+      description: string;
+      unit: string;
+      // Add other fields from wall_accessories if needed
+    };
+  };
+  const [projectWallAccessories, setProjectWallAccessories] = useState<ProjectWallAccessory[]>([]);
+  const [wallAccessoriesLoading, setWallAccessoriesLoading] = useState<boolean>(true);
+  const [wallAccessoriesError, setWallAccessoriesError] = useState<string | null>(null);
+
   useEffect(() => {
     async function fetchStructure() {
       try {
-        const { data: userEntry, error: userEntryError } = await supabase
-          .from('structure_user_entries')
-          .select('*')
-          .eq('entry_id', structureId)
-          .single();
-
-        if (userEntryError) throw userEntryError;
+        // Define the type for the data fetched from structure_user_entries including the joined structure
+        // This uses the generated Supabase types for better accuracy
+        type StructureUserEntryWithStructure = Database['public']['Tables']['structure_user_entries']['Row'] & {
+          structures: Database['public']['Tables']['structures']['Row'] | null;
+        };
 
         const { data: structureData, error: structureError } = await supabase
-          .from('structures')
-          .select('*')
-          .eq('structure_id', userEntry.structure_id)
-          .single();
+          .from('structure_user_entries')
+          .select('*, structures(*)') // Keep the join
+          .eq('entry_id', structureId)
+          .single<StructureUserEntryWithStructure>(); // Use the specific type here
 
         if (structureError) throw structureError;
+        if (!structureData) throw new Error('Project entry not found.');
 
-        // Combine the data, omitting the duplicate structure_id from userEntry
-        const { structure_id: _, ...userEntryWithoutStructureId } = userEntry;
-        setStructure({ ...structureData, ...userEntryWithoutStructureId });
-        setEditedStructure({ ...structureData, ...userEntryWithoutStructureId });
+        // --- Correctly combine data into CombinedStructure --- 
+        const combinedData: CombinedStructure = {
+          // Fields from structures table (use optional chaining)
+          structure_id: structureData.structures?.structure_id ?? '', // Use ID from joined table
+          model: structureData.structures?.model ?? '',
+          spacing: structureData.structures?.spacing ?? 0,
+          zones: structureData.structures?.zones ?? 1,
+          ranges: structureData.structures?.ranges ?? 1, 
+          houses: structureData.structures?.houses ?? 1, 
+          eave_height: structureData.structures?.eave_height ?? 0,
+          roof_glazing: structureData.structures?.roof_glazing ?? '',
+          gutter_partitions: structureData.structures?.gutter_partitions ?? 0,
+          gable_partitions: structureData.structures?.gable_partitions ?? 0,
+          load_rating: structureData.structures?.load_rating ?? '',
+          elevation: structureData.structures?.elevation ?? 'Standard',
+          width: structureData.structures?.width ?? 0,
+
+          // Fields from structure_user_entries table (direct access)
+          project_name: structureData.project_name ?? '',
+          description: structureData.description ?? '',
+          width_ft: structureData.width_ft ?? 0,
+          length_ft: structureData.length_ft ?? 0,
+          length: structureData.length_ft ?? 0, // Derive length from length_ft
+          covering_roof: structureData.covering_roof ?? '',
+          covering_sidewalls: structureData.covering_sidewalls ?? '',
+          covering_endwalls: structureData.covering_endwalls ?? '',
+          covering_gables: structureData.covering_gables ?? '',
+          status: structureData.status ?? 'Draft',
+          sidewall_concrete: structureData.sidewall_concrete ?? false,
+          endwall_concrete: structureData.endwall_concrete ?? false,
+          gutter_partition_concrete: structureData.gutter_partition_concrete ?? false,
+          gable_partition_concrete: structureData.gable_partition_concrete ?? false,
+        };
+
+        const deepCopiedData = JSON.parse(JSON.stringify(combinedData));
+        setStructure(deepCopiedData);
+        setEditedStructure(JSON.parse(JSON.stringify(combinedData))); // Initialize edited state with deep copy
 
         // Load vents
         const { data: ventData, error: ventError } = await supabase
@@ -145,19 +214,52 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
           .eq('structure_id', structureId);
 
         if (wallError) throw wallError;
-        setRollupWalls(wallData || []);
+        setRollupWalls(JSON.parse(JSON.stringify(wallData || []))); // Deep copy
 
-        // Load drop walls
+        // Load drop walls - ensuring wall_location is selected
         const { data: dropWallData, error: dropWallError } = await supabase
           .from('drop_walls')
-          .select('*')
+          .select('*, wall_location') // Explicitly select wall_location
           .eq('structure_id', structureId);
 
         if (dropWallError) throw dropWallError;
-        setDropWalls(dropWallData || []);
+        setDropWalls(JSON.parse(JSON.stringify(dropWallData || []))); // Deep copy
 
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to fetch structure details');
+        // Load manually added wall accessories with details from wall_accessories
+        const { data: accessoryData, error: accessoryError } = await supabase
+          .from('project_wall_accessories')
+          .select(`
+            *,
+            wall_accessories (
+              assembly_number,
+              description,
+              unit
+            )
+          `)
+          .eq('project_id', structureId); // Assuming projectId is available
+
+        if (accessoryError) {
+          console.error('Error fetching project wall accessories:', accessoryError);
+          setWallAccessoriesError(accessoryError.message); // Set error state
+        } else {
+          // Map the data to match our ProjectWallAccessory type
+          const mappedAccessories = (accessoryData || []).map((item: any) => ({
+            project_wall_accessory_id: item.project_accessory_id || item.id || '',
+            project_id: item.project_id || item.entry_id || '',
+            wall_accessory_id: item.wall_accessory_id || '',
+            quantity: item.quantity || 0,
+            wall_accessories: item.wall_accessories || {
+              assembly_number: '',
+              description: '',
+              unit: ''
+            }
+          }));
+          setProjectWallAccessories(mappedAccessories); // Set the state with properly mapped data
+        }
+        setWallAccessoriesLoading(false); // Indicate loading finished
+
+      } catch (error: any) {
+        setError(error instanceof Error ? error.message : 'Failed to fetch structure details');
       } finally {
         setLoading(false);
       }
@@ -226,20 +328,40 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
   };
 
   const handleSave = async () => {
-    if (!editedStructure) return;
+    if (!editedStructure) return; // Add back null check
     setIsSaving(true);
     setSaveError(null);
+
+    // --- Prepare update data for structure_user_entries ---
+    const updateData = {
+      project_name: editedStructure.project_name ?? undefined, // Handle null -> undefined if needed
+      description: editedStructure.description ?? undefined,
+      width_ft: editedStructure.width_ft,
+      length_ft: editedStructure.length_ft,
+      covering_roof: editedStructure.covering_roof ?? undefined,
+      covering_sidewalls: editedStructure.covering_sidewalls ?? undefined,
+      covering_endwalls: editedStructure.covering_endwalls ?? undefined,
+      covering_gables: editedStructure.covering_gables ?? undefined,
+      status: editedStructure.status ?? undefined,
+      sidewall_concrete: editedStructure.sidewall_concrete,
+      endwall_concrete: editedStructure.endwall_concrete,
+      gutter_partition_concrete: editedStructure.gutter_partition_concrete,
+      gable_partition_concrete: editedStructure.gable_partition_concrete,
+      // Do NOT include structure_id or other fields from the 'structures' table
+    };
 
     try {
       const { error } = await supabase
         .from('structure_user_entries')
-        .update(editedStructure)
-        .eq('entry_id', structureId);
+        .update(updateData) // Use the prepared data
+        .eq('entry_id', structureId); // structureId holds the entry_id
 
       if (error) throw error;
+      // Successfully updated, set the main structure state
       setStructure(editedStructure as CombinedStructure);
       setIsEditing(false);
     } catch (err) {
+      console.error("Save error:", err); // Log the detailed error
       setSaveError(err instanceof Error ? err.message : 'Failed to save changes');
     } finally {
       setIsSaving(false);
@@ -276,10 +398,26 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     if (!editedStructure) return;
     const { name, value, type } = e.target;
-    setEditedStructure(prev => ({
-      ...prev!,
-      [name]: type === 'number' ? Number(value) : value,
-    }));
+
+    let processedValue: string | number | boolean = value; // Default to string
+
+    if (type === 'number') {
+      processedValue = Number(value);
+    }
+    // Add handling for checkboxes if they exist:
+    // if (type === 'checkbox') {
+    //   processedValue = (e.target as HTMLInputElement).checked;
+    // }
+
+    setEditedStructure(prev => {
+      if (!prev) return null; // Should not happen due to guard clause, but satisfies TS
+      const updated = {
+        ...prev,
+        [name]: processedValue,
+      };
+      // Explicitly cast back to CombinedStructure to satisfy TypeScript
+      return updated as CombinedStructure;
+    });
   };
 
   const handleAddVent = async (ventPayload: any) => {
@@ -588,6 +726,92 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
       setError(err instanceof Error ? err.message : 'Failed to load drop walls');
     }
   };
+
+  useEffect(() => {
+    if (structure) {
+      const isEndwallConcrete = structure.endwall_concrete ?? false;
+      const isSidewallConcrete = structure.sidewall_concrete ?? false;
+      const isGutterPartitionConcrete = structure.gutter_partition_concrete ?? false;
+      const isGablePartitionConcrete = structure.gable_partition_concrete ?? false;
+
+      const calculated: CalculatedComponent[] = [];
+
+      const totalSidewallFt = (structure?.length_ft || 0) * 2;
+      const totalEndwallFt = (structure?.width_ft || 0) * 2;
+      const totalGutterPartitionFt = (structure?.length_ft || 0) * (structure?.gutter_partitions || 0);
+      const totalGablePartitionFt = (structure?.width_ft || 0) * (structure?.gable_partitions || 0);
+
+      // Create new approach with proper temp variables 
+      // to avoid issues with readonly properties
+      const allWalls = [...(rollupWalls || []), ...(dropWalls || [])]; // Create array first
+      
+      // Calculate how much wall length to subtract from sides/ends
+      let sidewallReduction = 0;
+      let endwallReduction = 0;
+      
+      // Use for loop instead of forEach
+      for (let i = 0; i < allWalls.length; i++) {
+        const wall = allWalls[i];
+        const wallLength = wall?.wall_length || 0;
+        const wallLocation = wall?.wall_location || '';
+        
+        if (wallLocation.toLowerCase().includes('sidewall') && wallLength > 0) {
+          sidewallReduction += wallLength;
+        }
+        if (wallLocation.toLowerCase().includes('endwall') && wallLength > 0) {
+          endwallReduction += wallLength;
+        }
+      }
+      
+      // Now calculate remaining using our accumulated reductions
+      const remainingSidewallFt = Math.max(totalSidewallFt - sidewallReduction, 0);
+      const remainingEndwallFt = Math.max(totalEndwallFt - endwallReduction, 0);
+      const remainingGutterPartitionFt = Math.max(totalGutterPartitionFt, 0);
+      const remainingGablePartitionFt = Math.max(totalGablePartitionFt, 0);
+
+      if (remainingSidewallFt > 0) {
+        calculated.push({
+          assemblyNumber: isSidewallConcrete ? BASE_ANGLE_ASSEMBLY : BASE_STRINGER_ASSEMBLY,
+          description: isSidewallConcrete ? BASE_ANGLE_DESC : BASE_STRINGER_DESC,
+          location: 'Sidewalls',
+          quantity: Math.round(remainingSidewallFt * 100) / 100,
+          unit: 'Linear Ft',
+        });
+      }
+
+      if (remainingEndwallFt > 0) {
+        calculated.push({
+          assemblyNumber: isEndwallConcrete ? BASE_ANGLE_ASSEMBLY : BASE_STRINGER_ASSEMBLY,
+          description: isEndwallConcrete ? BASE_ANGLE_DESC : BASE_STRINGER_DESC,
+          location: 'Endwalls',
+          quantity: Math.round(remainingEndwallFt * 100) / 100,
+          unit: 'Linear Ft',
+        });
+      }
+
+      if (remainingGutterPartitionFt > 0) {
+        calculated.push({
+          assemblyNumber: isGutterPartitionConcrete ? BASE_ANGLE_ASSEMBLY : BASE_STRINGER_ASSEMBLY,
+          description: isGutterPartitionConcrete ? BASE_ANGLE_DESC : BASE_STRINGER_DESC,
+          location: 'Gutter Partitions',
+          quantity: Math.round(remainingGutterPartitionFt * 100) / 100,
+          unit: 'Linear Ft',
+        });
+      }
+
+      if (remainingGablePartitionFt > 0) {
+        calculated.push({
+          assemblyNumber: isGablePartitionConcrete ? BASE_ANGLE_ASSEMBLY : BASE_STRINGER_ASSEMBLY,
+          description: isGablePartitionConcrete ? BASE_ANGLE_DESC : BASE_STRINGER_DESC,
+          location: 'Gable Partitions',
+          quantity: Math.round(remainingGablePartitionFt * 100) / 100,
+          unit: 'Linear Ft',
+        });
+      }
+
+      setCalculatedBaseComponents(calculated); 
+    }
+  }, [structure, rollupWalls, dropWalls]);
 
   if (loading) {
     return (
@@ -1223,80 +1447,156 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
       </div>
 
       <div className="bg-gray-800 p-6 rounded-lg">
-        <div className="flex justify-between items-center">
-          <h3 className="text-lg font-medium text-white flex items-center gap-2">
-            Drop Walls
-          </h3>
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center gap-3">
+            <Wind className="w-5 h-5 text-emerald-500" />
+            <h3 className="text-lg font-semibold">Drop Walls</h3>
+          </div>
           <button
             onClick={() => {
               setEditingDropWall(null);
               setShowDropWallForm(true);
             }}
-            className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium text-white transition-colors"
+            className="flex items-center gap-2 px-3 py-1 bg-emerald-600 hover:bg-emerald-700 rounded-lg transition-colors text-sm"
           >
+            <Plus className="w-4 h-4" />
             Add Drop Wall
           </button>
         </div>
 
-        {dropWalls.length === 0 ? (
-          <p className="text-gray-400 text-center py-4">No drop walls added yet</p>
-        ) : (
-          <div className="grid grid-cols-1 gap-4">
-            {dropWalls.map((wall) => (
-              <div
-                key={wall.drop_wall_id}
-                className="bg-gray-800 rounded-lg p-4 space-y-2"
-              >
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className="text-white font-medium">
-                      {wall.type} Drop Wall
-                    </h4>
-                    <p className="text-gray-400">
-                      {wall.wall_length}' x {wall.wall_height}'
-                    </p>
-                    <p className="text-gray-400">
-                      Drive Type: {wall.drive_type}
-                      {wall.motor_model && ` (${wall.motor_model})`}
-                    </p>
-                    <p className="text-gray-400">
-                      NS30: {wall.ns30} | Spacing: {wall.spacing} | ATI House: {wall.ati_house}
-                    </p>
-                    <p className="text-gray-400">
-                      Quantity: {wall.quantity}
-                    </p>
-                    {wall.notes && (
-                      <p className="text-gray-400 mt-2">
-                        Notes: {wall.notes}
-                      </p>
-                    )}
-                  </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => {
-                        setEditingDropWall(wall);
-                        setShowDropWallForm(true);
-                      }}
-                      className="p-1 text-gray-400 hover:text-white"
-                    >
-                      <Edit2 size={16} />
-                    </button>
-                    <button
-                      onClick={() => handleDeleteDropWall(wall.drop_wall_id)}
-                      className="p-1 text-gray-400 hover:text-red-500"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            ))}
+        {showDropWallForm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+            <div className="bg-gray-800 rounded-lg p-6 w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+              <DropWallForm
+                structureId={structureId}
+                wall={editingDropWall}
+                onSubmit={editingDropWall ? handleUpdateDropWall.bind(null, editingDropWall.drop_wall_id) : handleAddDropWall}
+                onCancel={() => {
+                  setShowDropWallForm(false);
+                  setEditingDropWall(null);
+                }}
+              />
+            </div>
           </div>
         )}
+
+        <div className="space-y-4">
+          {dropWalls.length === 0 ? (
+            <p className="text-gray-400 text-center py-4">No drop walls added yet</p>
+          ) : (
+            dropWalls.map((wall) => (
+              <div
+                key={wall.drop_wall_id}
+                className="bg-gray-750 p-4 rounded-lg flex items-center justify-between"
+              >
+                <div className="space-y-1">
+                  <h4 className="font-medium">{wall.type} Drop Wall</h4>
+                  <div className="text-sm text-gray-400 space-y-1">
+                    <p>Dimensions: {wall.wall_height}' × {wall.wall_length}'</p>
+                    <p>Drive Type: {wall.drive_type}
+                      {wall.motor_model && ` (${wall.motor_model})`}
+                    </p>
+                    <p>NS30: {wall.ns30} | Spacing: {wall.spacing} | ATI House: {wall.ati_house}</p>
+                    <p>Quantity: {wall.quantity}</p>
+                    {wall.notes && (
+                      <p>Notes: {wall.notes}</p>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setEditingDropWall(wall);
+                      setShowDropWallForm(true);
+                    }}
+                    className="p-2 hover:bg-gray-700 rounded-lg transition-colors text-emerald-500"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => handleDeleteDropWall(wall.drop_wall_id)}
+                    className="p-2 hover:bg-gray-700 rounded-lg transition-colors text-red-500"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
       </div>
+
+      {/* --- Wall Accessories Section --- */}
+      <div className="bg-gray-700 p-6 rounded-lg space-y-4">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-medium text-white flex items-center gap-2">
+            {/* Add an appropriate icon if desired */}
+            Wall Accessories
+          </h3>
+          {/* Add Button - Future Implementation */}
+          {/* <button
+            onClick={() => { ... open accessory form ... }}
+            className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium text-white transition-colors"
+          >
+            <Plus size={16} /> Add Accessory
+          </button> */}
+        </div>
+
+        {/* Calculated Base Components */}
+        <div>
+          <h4 className="text-md font-medium text-emerald-500">Calculated Base Components</h4>
+          {calculatedBaseComponents.length === 0 ? (
+            <p className="text-gray-400 text-sm">No base components calculated yet.</p>
+          ) : (
+            <ul className="list-disc list-inside text-gray-400 space-y-1 pl-4 text-sm">
+              {calculatedBaseComponents.map((comp, index) => (
+                <li key={index}>
+                  {comp.description}: {comp.quantity} linear feet
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Manually Added Accessories */}
+        <div>
+          <h4 className="text-md font-medium text-emerald-500">Manually Added Accessories</h4>
+          {wallAccessoriesLoading ? (
+            <p className="text-gray-400 text-sm">Loading accessories...</p>
+          ) : wallAccessoriesError ? (
+            <p className="text-red-500 text-sm">Error loading accessories: {wallAccessoriesError}</p>
+          ) : projectWallAccessories.length === 0 ? (
+            <p className="text-gray-400 text-sm">No accessories manually added.</p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {projectWallAccessories.map((item) => (
+                <div key={item.project_wall_accessory_id} className="bg-gray-800 rounded-lg p-3 space-y-1 text-sm">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="text-white font-medium">
+                        {item.wall_accessories?.description || 'N/A'} ({item.wall_accessories?.assembly_number || 'N/A'})
+                      </p>
+                      <p className="text-gray-400">
+                        Quantity: {item.quantity} {item.wall_accessories?.unit || ''}
+                      </p>
+                    </div>
+                    {/* Edit/Delete Buttons - Future Implementation */}
+                    {/* <div className="flex gap-1">
+                      <button className="p-1 text-gray-400 hover:text-white"><Edit2 size={14} /></button>
+                      <button className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
+                    </div> */}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+      {/* --- End Wall Accessories Section --- */}
 
       {showDropWallForm && (
         <DropWallForm
+          structureId={structureId}
           wall={editingDropWall}
           onSubmit={editingDropWall ? handleUpdateDropWall.bind(null, editingDropWall.drop_wall_id) : handleAddDropWall}
           onCancel={() => {
@@ -1306,6 +1606,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
         />
       )}
 
+      {/* Environmental Controls Section follows... */}
       <div className="bg-gray-800 p-6 rounded-lg">
         <div className="flex items-center gap-3 mb-4">
           <Thermometer className="w-6 h-6 text-emerald-500" />
@@ -1314,7 +1615,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-4">
-              <h4 className="font-medium text-emerald-500">Cooling System</h4>
+              <h4 className="text-md font-medium text-emerald-500">Cooling System</h4>
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span>Exhaust Fans</span>
@@ -1332,7 +1633,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
             </div>
             
             <div className="space-y-4">
-              <h4 className="font-medium text-emerald-500">Heating System</h4>
+              <h4 className="text-md font-medium text-emerald-500">Heating System</h4>
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span>Unit Heaters</span>
