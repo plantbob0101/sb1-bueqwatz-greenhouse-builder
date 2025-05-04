@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Building2, Ruler, Thermometer, Wind, Edit2, Share2, Trash2, Save, X, Plus, Fan } from 'lucide-react';
+import { ArrowLeft, Building2, Ruler, Wind, Edit2, Share2, Trash2, Save, X, Plus, Fan, Settings } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Database } from '../types/supabase';
 import VentForm from './VentForm';
@@ -36,7 +36,6 @@ interface CombinedStructure {
   endwall_concrete: boolean;
   gutter_partition_concrete: boolean;
   gable_partition_concrete: boolean;
-  // user_id and created_at might not be needed here unless used for display
 }
 
 interface ProjectDetailsProps {
@@ -92,6 +91,9 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
   const BASE_ANGLE_DESC = 'Base Angle'; // Simplified description for display
   const BASE_STRINGER_ASSEMBLY = 'VA820016'; // Example: Base Stringer - 4” C-Channel
   const BASE_STRINGER_DESC = 'Base Stringer'; // Simplified description for display
+  const ANCHOR_BOLT_ASSEMBLY = 'AB-001';
+  const ANCHOR_BOLT_DESC = 'Anchor Bolt';
+  const BOLTS_PER_BASE_ANGLE = 5;
 
   type CalculatedComponent = {
     assemblyNumber: string;
@@ -102,23 +104,48 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
   };
   const [calculatedBaseComponents, setCalculatedBaseComponents] = useState<CalculatedComponent[]>([]);
 
-  // State for manually added wall accessories
-  type ProjectWallAccessory = {
-    project_wall_accessory_id: string;
-    project_id: string;
-    wall_accessory_id: string;
-    quantity: number;
-    wall_accessories: {
-      // Fields from wall_accessories table
-      assembly_number: string;
-      description: string;
-      unit: string;
-      // Add other fields from wall_accessories if needed
-    };
+  const [isConcreteModalOpen, setIsConcreteModalOpen] = useState(false);
+
+  const saveConcreteSettings = async (settings: {
+    sidewall_concrete: boolean;
+    endwall_concrete: boolean;
+    gutter_partition_concrete: boolean;
+    gable_partition_concrete: boolean;
+  }) => {
+    try {
+      setLoading(true);
+      
+      const { error } = await supabase
+        .from('structure_user_entries')
+        .update({
+          sidewall_concrete: settings.sidewall_concrete,
+          endwall_concrete: settings.endwall_concrete,
+          gutter_partition_concrete: settings.gutter_partition_concrete,
+          gable_partition_concrete: settings.gable_partition_concrete
+        })
+        .eq('entry_id', structureId);
+      
+      if (error) throw error;
+      
+      // Update local state
+      if (structure) {
+        setStructure({
+          ...structure,
+          sidewall_concrete: settings.sidewall_concrete,
+          endwall_concrete: settings.endwall_concrete,
+          gutter_partition_concrete: settings.gutter_partition_concrete,
+          gable_partition_concrete: settings.gable_partition_concrete
+        });
+      }
+      
+      // showSuccess('Concrete settings updated successfully');
+      setIsConcreteModalOpen(false);
+    } catch (err: any) {
+      // showError('Failed to update concrete settings: ' + (err.message || String(err)));
+    } finally {
+      setLoading(false);
+    }
   };
-  const [projectWallAccessories, setProjectWallAccessories] = useState<ProjectWallAccessory[]>([]);
-  const [wallAccessoriesLoading, setWallAccessoriesLoading] = useState<boolean>(true);
-  const [wallAccessoriesError, setWallAccessoriesError] = useState<string | null>(null);
 
   useEffect(() => {
     async function fetchStructure() {
@@ -225,39 +252,6 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
         if (dropWallError) throw dropWallError;
         setDropWalls(JSON.parse(JSON.stringify(dropWallData || []))); // Deep copy
 
-        // Load manually added wall accessories with details from wall_accessories
-        const { data: accessoryData, error: accessoryError } = await supabase
-          .from('project_wall_accessories')
-          .select(`
-            *,
-            wall_accessories (
-              assembly_number,
-              description,
-              unit
-            )
-          `)
-          .eq('project_id', structureId); // Assuming projectId is available
-
-        if (accessoryError) {
-          console.error('Error fetching project wall accessories:', accessoryError);
-          setWallAccessoriesError(accessoryError.message); // Set error state
-        } else {
-          // Map the data to match our ProjectWallAccessory type
-          const mappedAccessories = (accessoryData || []).map((item: any) => ({
-            project_wall_accessory_id: item.project_accessory_id || item.id || '',
-            project_id: item.project_id || item.entry_id || '',
-            wall_accessory_id: item.wall_accessory_id || '',
-            quantity: item.quantity || 0,
-            wall_accessories: item.wall_accessories || {
-              assembly_number: '',
-              description: '',
-              unit: ''
-            }
-          }));
-          setProjectWallAccessories(mappedAccessories); // Set the state with properly mapped data
-        }
-        setWallAccessoriesLoading(false); // Indicate loading finished
-
       } catch (error: any) {
         setError(error instanceof Error ? error.message : 'Failed to fetch structure details');
       } finally {
@@ -343,10 +337,6 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
       covering_endwalls: editedStructure.covering_endwalls ?? undefined,
       covering_gables: editedStructure.covering_gables ?? undefined,
       status: editedStructure.status ?? undefined,
-      sidewall_concrete: editedStructure.sidewall_concrete,
-      endwall_concrete: editedStructure.endwall_concrete,
-      gutter_partition_concrete: editedStructure.gutter_partition_concrete,
-      gable_partition_concrete: editedStructure.gable_partition_concrete,
       // Do NOT include structure_id or other fields from the 'structures' table
     };
 
@@ -742,76 +732,198 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
       const totalGablePartitionFt = (structure?.width_ft || 0) * (structure?.gable_partitions || 0);
 
       // Create new approach with proper temp variables 
-      // to avoid issues with readonly properties
-      const allWalls = [...(rollupWalls || []), ...(dropWalls || [])]; // Create array first
+      const allWalls = [...(rollupWalls || []), ...(dropWalls || [])];
       
-      // Calculate how much wall length to subtract from sides/ends
       let sidewallReduction = 0;
       let endwallReduction = 0;
       
-      // Use for loop instead of forEach
       for (let i = 0; i < allWalls.length; i++) {
         const wall = allWalls[i];
         const wallLength = wall?.wall_length || 0;
         const wallLocation = wall?.wall_location || '';
+        const quantity = wall?.quantity || 1;
         
         if (wallLocation.toLowerCase().includes('sidewall') && wallLength > 0) {
-          sidewallReduction += wallLength;
+          sidewallReduction += wallLength * quantity;
         }
         if (wallLocation.toLowerCase().includes('endwall') && wallLength > 0) {
-          endwallReduction += wallLength;
+          endwallReduction += wallLength * quantity;
         }
       }
       
-      // Now calculate remaining using our accumulated reductions
       const remainingSidewallFt = Math.max(totalSidewallFt - sidewallReduction, 0);
       const remainingEndwallFt = Math.max(totalEndwallFt - endwallReduction, 0);
       const remainingGutterPartitionFt = Math.max(totalGutterPartitionFt, 0);
       const remainingGablePartitionFt = Math.max(totalGablePartitionFt, 0);
 
+      // For sidewalls
       if (remainingSidewallFt > 0) {
-        calculated.push({
-          assemblyNumber: isSidewallConcrete ? BASE_ANGLE_ASSEMBLY : BASE_STRINGER_ASSEMBLY,
-          description: isSidewallConcrete ? BASE_ANGLE_DESC : BASE_STRINGER_DESC,
-          location: 'Sidewalls',
-          quantity: Math.round(remainingSidewallFt * 100) / 100,
-          unit: 'Linear Ft',
-        });
+        if (isSidewallConcrete) {
+          // Base angle for concrete sidewalls
+          const sidewallBaseAngleUnits = Math.ceil(remainingSidewallFt / 12);
+          calculated.push({
+            assemblyNumber: BASE_ANGLE_ASSEMBLY,
+            description: BASE_ANGLE_DESC,
+            location: 'Sidewalls',
+            quantity: sidewallBaseAngleUnits,
+            unit: 'Each',
+          });
+          
+          // Anchor bolts for sidewall base angles
+          const sidewallAnchorBolts = sidewallBaseAngleUnits * BOLTS_PER_BASE_ANGLE;
+          calculated.push({
+            assemblyNumber: ANCHOR_BOLT_ASSEMBLY,
+            description: ANCHOR_BOLT_DESC,
+            location: 'Sidewalls',
+            quantity: sidewallAnchorBolts,
+            unit: 'Each',
+          });
+        } else {
+          // Base stringer for non-concrete sidewalls
+          calculated.push({
+            assemblyNumber: BASE_STRINGER_ASSEMBLY,
+            description: BASE_STRINGER_DESC,
+            location: 'Sidewalls',
+            quantity: Math.round(remainingSidewallFt * 100) / 100,
+            unit: 'Linear Ft',
+          });
+        }
       }
-
+      
+      // For endwalls
       if (remainingEndwallFt > 0) {
-        calculated.push({
-          assemblyNumber: isEndwallConcrete ? BASE_ANGLE_ASSEMBLY : BASE_STRINGER_ASSEMBLY,
-          description: isEndwallConcrete ? BASE_ANGLE_DESC : BASE_STRINGER_DESC,
-          location: 'Endwalls',
-          quantity: Math.round(remainingEndwallFt * 100) / 100,
-          unit: 'Linear Ft',
-        });
+        if (isEndwallConcrete) {
+          // Base angle for concrete endwalls
+          const endwallBaseAngleUnits = Math.ceil(remainingEndwallFt / 12);
+          calculated.push({
+            assemblyNumber: BASE_ANGLE_ASSEMBLY,
+            description: BASE_ANGLE_DESC,
+            location: 'Endwalls',
+            quantity: endwallBaseAngleUnits,
+            unit: 'Each',
+          });
+          
+          // Anchor bolts for endwall base angles
+          const endwallAnchorBolts = endwallBaseAngleUnits * BOLTS_PER_BASE_ANGLE;
+          calculated.push({
+            assemblyNumber: ANCHOR_BOLT_ASSEMBLY,
+            description: ANCHOR_BOLT_DESC,
+            location: 'Endwalls',
+            quantity: endwallAnchorBolts,
+            unit: 'Each',
+          });
+        } else {
+          // Base stringer for non-concrete endwalls
+          calculated.push({
+            assemblyNumber: BASE_STRINGER_ASSEMBLY,
+            description: BASE_STRINGER_DESC,
+            location: 'Endwalls',
+            quantity: Math.round(remainingEndwallFt * 100) / 100,
+            unit: 'Linear Ft',
+          });
+        }
       }
 
+      // For gutter partitions
       if (remainingGutterPartitionFt > 0) {
-        calculated.push({
-          assemblyNumber: isGutterPartitionConcrete ? BASE_ANGLE_ASSEMBLY : BASE_STRINGER_ASSEMBLY,
-          description: isGutterPartitionConcrete ? BASE_ANGLE_DESC : BASE_STRINGER_DESC,
-          location: 'Gutter Partitions',
-          quantity: Math.round(remainingGutterPartitionFt * 100) / 100,
-          unit: 'Linear Ft',
-        });
+        if (isGutterPartitionConcrete) {
+          // Base angle for concrete gutter partitions
+          const gutterBaseAngleUnits = Math.ceil(remainingGutterPartitionFt / 12);
+          calculated.push({
+            assemblyNumber: BASE_ANGLE_ASSEMBLY,
+            description: BASE_ANGLE_DESC,
+            location: 'Gutter Partitions',
+            quantity: gutterBaseAngleUnits,
+            unit: 'Each',
+          });
+          
+          // Anchor bolts for gutter partition base angles
+          const gutterAnchorBolts = gutterBaseAngleUnits * BOLTS_PER_BASE_ANGLE;
+          calculated.push({
+            assemblyNumber: ANCHOR_BOLT_ASSEMBLY,
+            description: ANCHOR_BOLT_DESC,
+            location: 'Gutter Partitions',
+            quantity: gutterAnchorBolts,
+            unit: 'Each',
+          });
+        } else {
+          // Base stringer for non-concrete gutter partitions
+          calculated.push({
+            assemblyNumber: BASE_STRINGER_ASSEMBLY,
+            description: BASE_STRINGER_DESC,
+            location: 'Gutter Partitions',
+            quantity: Math.round(remainingGutterPartitionFt * 100) / 100,
+            unit: 'Linear Ft',
+          });
+        }
       }
 
+      // For gable partitions
       if (remainingGablePartitionFt > 0) {
-        calculated.push({
-          assemblyNumber: isGablePartitionConcrete ? BASE_ANGLE_ASSEMBLY : BASE_STRINGER_ASSEMBLY,
-          description: isGablePartitionConcrete ? BASE_ANGLE_DESC : BASE_STRINGER_DESC,
-          location: 'Gable Partitions',
-          quantity: Math.round(remainingGablePartitionFt * 100) / 100,
-          unit: 'Linear Ft',
-        });
+        if (isGablePartitionConcrete) {
+          // Base angle for concrete gable partitions
+          const gableBaseAngleUnits = Math.ceil(remainingGablePartitionFt / 12);
+          calculated.push({
+            assemblyNumber: BASE_ANGLE_ASSEMBLY,
+            description: BASE_ANGLE_DESC,
+            location: 'Gable Partitions',
+            quantity: gableBaseAngleUnits,
+            unit: 'Each',
+          });
+          
+          // Anchor bolts for gable partition base angles
+          const gableAnchorBolts = gableBaseAngleUnits * BOLTS_PER_BASE_ANGLE;
+          calculated.push({
+            assemblyNumber: ANCHOR_BOLT_ASSEMBLY,
+            description: ANCHOR_BOLT_DESC,
+            location: 'Gable Partitions',
+            quantity: gableAnchorBolts,
+            unit: 'Each',
+          });
+        } else {
+          // Base stringer for non-concrete gable partitions
+          calculated.push({
+            assemblyNumber: BASE_STRINGER_ASSEMBLY,
+            description: BASE_STRINGER_DESC,
+            location: 'Gable Partitions',
+            quantity: Math.round(remainingGablePartitionFt * 100) / 100,
+            unit: 'Linear Ft',
+          });
+        }
       }
 
       setCalculatedBaseComponents(calculated); 
     }
   }, [structure, rollupWalls, dropWalls]);
+
+  useEffect(() => {
+    // Add CSS for toggle switches
+    const style = document.createElement('style');
+    style.innerHTML = `
+      /* Toggle Switch Styling */
+      .toggle-checkbox {
+        transition: 0.4s;
+        z-index: 10;
+      }
+      .toggle-checkbox:checked {
+        transform: translateX(100%);
+        border-color: #10b981;
+      }
+      .toggle-checkbox:checked + .toggle-label {
+        background-color: #10b981;
+      }
+      .toggle-label {
+        transition: background-color 0.4s;
+        position: relative;
+      }
+    `;
+    document.head.appendChild(style);
+
+    // Cleanup function to remove the style when component unmounts
+    return () => {
+      document.head.removeChild(style);
+    };
+  }, []);
 
   if (loading) {
     return (
@@ -1527,145 +1639,212 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
       </div>
 
       {/* --- Wall Accessories Section --- */}
-      <div className="bg-gray-700 p-6 rounded-lg space-y-4">
+      <div className="bg-gray-800 rounded-lg p-4 mb-4 space-y-4">
         <div className="flex justify-between items-center">
-          <h3 className="text-lg font-medium text-white flex items-center gap-2">
-            {/* Add an appropriate icon if desired */}
-            Wall Accessories
+          <h3 className="text-lg font-semibold text-white flex items-center">
+            <span className="mr-2">🧱</span> Wall Accessories
           </h3>
-          {/* Add Button - Future Implementation */}
-          {/* <button
-            onClick={() => { ... open accessory form ... }}
-            className="flex items-center gap-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-medium text-white transition-colors"
+          <button
+            onClick={() => setIsConcreteModalOpen(true)}
+            className="px-3 py-1 bg-emerald-600 text-white rounded-md hover:bg-emerald-700 flex items-center text-sm"
           >
-            <Plus size={16} /> Add Accessory
-          </button> */}
+            <Settings size={14} className="mr-1" /> Configure Concrete
+          </button>
         </div>
+
+        {/* Concrete Configuration Modal */}
+        {isConcreteModalOpen && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
+            <div className="bg-gray-800 p-6 rounded-lg max-w-lg w-full">
+              <div className="flex justify-between items-center mb-4">
+                <h3 className="text-xl font-bold text-white">Concrete Configuration</h3>
+                <button 
+                  className="text-gray-400 hover:text-white"
+                  onClick={() => setIsConcreteModalOpen(false)}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-gray-300">Select which walls have concrete foundations:</p>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Perimeter Walls */}
+                  <div className="bg-gray-700 rounded p-3">
+                    <h4 className="font-medium text-white mb-2">Perimeter Walls</h4>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-gray-300">Sidewalls</label>
+                        <div className="relative inline-block w-10 mr-2 align-middle select-none">
+                          <input 
+                            type="checkbox" 
+                            className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
+                            checked={structure?.sidewall_concrete || false}
+                            onChange={(e) => {
+                              if (structure) {
+                                const updatedStructure = {
+                                  ...structure,
+                                  sidewall_concrete: e.target.checked
+                                };
+                                setStructure(updatedStructure);
+                              }
+                            }}
+                          />
+                          <label 
+                            className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-500 cursor-pointer"
+                          ></label>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <label className="text-gray-300">Endwalls</label>
+                        <div className="relative inline-block w-10 mr-2 align-middle select-none">
+                          <input 
+                            type="checkbox" 
+                            className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
+                            checked={structure?.endwall_concrete || false}
+                            onChange={(e) => {
+                              if (structure) {
+                                const updatedStructure = {
+                                  ...structure,
+                                  endwall_concrete: e.target.checked
+                                };
+                                setStructure(updatedStructure);
+                              }
+                            }}
+                          />
+                          <label 
+                            className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-500 cursor-pointer"
+                          ></label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* Partitions */}
+                  <div className="bg-gray-700 rounded p-3">
+                    <h4 className="font-medium text-white mb-2">Partitions</h4>
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <label className="text-gray-300">Gutter Partitions</label>
+                        <div className="relative inline-block w-10 mr-2 align-middle select-none">
+                          <input 
+                            type="checkbox" 
+                            className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
+                            checked={structure?.gutter_partition_concrete || false}
+                            onChange={(e) => {
+                              if (structure) {
+                                const updatedStructure = {
+                                  ...structure,
+                                  gutter_partition_concrete: e.target.checked
+                                };
+                                setStructure(updatedStructure);
+                              }
+                            }}
+                          />
+                          <label 
+                            className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-500 cursor-pointer"
+                          ></label>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center justify-between">
+                        <label className="text-gray-300">Gable Partitions</label>
+                        <div className="relative inline-block w-10 mr-2 align-middle select-none">
+                          <input 
+                            type="checkbox" 
+                            className="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer"
+                            checked={structure?.gable_partition_concrete || false}
+                            onChange={(e) => {
+                              if (structure) {
+                                const updatedStructure = {
+                                  ...structure,
+                                  gable_partition_concrete: e.target.checked
+                                };
+                                setStructure(updatedStructure);
+                              }
+                            }}
+                          />
+                          <label 
+                            className="toggle-label block overflow-hidden h-6 rounded-full bg-gray-500 cursor-pointer"
+                          ></label>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Buttons */}
+                <div className="flex justify-end space-x-3 mt-6">
+                  <button 
+                    className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-500"
+                    onClick={() => setIsConcreteModalOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button 
+                    className="px-4 py-2 bg-emerald-600 text-white rounded hover:bg-emerald-500"
+                    onClick={() => {
+                      if (structure) {
+                        saveConcreteSettings({
+                          sidewall_concrete: structure.sidewall_concrete || false,
+                          endwall_concrete: structure.endwall_concrete || false,
+                          gutter_partition_concrete: structure.gutter_partition_concrete || false,
+                          gable_partition_concrete: structure.gable_partition_concrete || false
+                        });
+                      }
+                    }}
+                  >
+                    Save Settings
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Calculated Base Components */}
         <div>
           <h4 className="text-md font-medium text-emerald-500">Calculated Base Components</h4>
           {calculatedBaseComponents.length === 0 ? (
-            <p className="text-gray-400 text-sm">No base components calculated yet.</p>
+            <p className="text-gray-400 text-sm">No base components to display.</p>
           ) : (
-            <ul className="list-disc list-inside text-gray-400 space-y-1 pl-4 text-sm">
-              {calculatedBaseComponents.map((comp, index) => (
-                <li key={index}>
-                  {comp.description}: {comp.quantity} linear feet
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-
-        {/* Manually Added Accessories */}
-        <div>
-          <h4 className="text-md font-medium text-emerald-500">Manually Added Accessories</h4>
-          {wallAccessoriesLoading ? (
-            <p className="text-gray-400 text-sm">Loading accessories...</p>
-          ) : wallAccessoriesError ? (
-            <p className="text-red-500 text-sm">Error loading accessories: {wallAccessoriesError}</p>
-          ) : projectWallAccessories.length === 0 ? (
-            <p className="text-gray-400 text-sm">No accessories manually added.</p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {projectWallAccessories.map((item) => (
-                <div key={item.project_wall_accessory_id} className="bg-gray-800 rounded-lg p-3 space-y-1 text-sm">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <p className="text-white font-medium">
-                        {item.wall_accessories?.description || 'N/A'} ({item.wall_accessories?.assembly_number || 'N/A'})
-                      </p>
-                      <p className="text-gray-400">
-                        Quantity: {item.quantity} {item.wall_accessories?.unit || ''}
-                      </p>
-                    </div>
-                    {/* Edit/Delete Buttons - Future Implementation */}
-                    {/* <div className="flex gap-1">
-                      <button className="p-1 text-gray-400 hover:text-white"><Edit2 size={14} /></button>
-                      <button className="p-1 text-gray-400 hover:text-red-500"><Trash2 size={14} /></button>
-                    </div> */}
-                  </div>
+            <>
+              <ul className="list-disc list-inside text-gray-400 space-y-1 pl-4 text-sm">
+                {calculatedBaseComponents.map((comp, index) => (
+                  <li key={index}>
+                    {comp.description}: {comp.quantity} {comp.unit} ({comp.location})
+                  </li>
+                ))}
+              </ul>
+              
+              {/* Totals Section */}
+              <div className="mt-4 pt-3 border-t border-gray-700">
+                <h5 className="text-sm font-medium text-emerald-500 mb-2">Totals</h5>
+                <div className="space-y-1 text-sm text-gray-300">
+                  <p>
+                    Total Base Stringer: {calculatedBaseComponents
+                      .filter(comp => comp.description === BASE_STRINGER_DESC)
+                      .reduce((sum, comp) => sum + comp.quantity, 0)
+                      .toFixed(2)} Linear Ft
+                  </p>
+                  <p>
+                    Total Base Angle: {calculatedBaseComponents
+                      .filter(comp => comp.description === BASE_ANGLE_DESC)
+                      .reduce((sum, comp) => sum + comp.quantity, 0)} Each
+                  </p>
+                  <p>
+                    Total Anchor Bolts: {calculatedBaseComponents
+                      .filter(comp => comp.description === ANCHOR_BOLT_DESC)
+                      .reduce((sum, comp) => sum + comp.quantity, 0)} Each
+                  </p>
                 </div>
-              ))}
-            </div>
+              </div>
+            </>
           )}
         </div>
       </div>
-      {/* --- End Wall Accessories Section --- */}
-
-      {showDropWallForm && (
-        <DropWallForm
-          structureId={structureId}
-          wall={editingDropWall}
-          onSubmit={editingDropWall ? handleUpdateDropWall.bind(null, editingDropWall.drop_wall_id) : handleAddDropWall}
-          onCancel={() => {
-            setShowDropWallForm(false);
-            setEditingDropWall(null);
-          }}
-        />
-      )}
-
-      {/* Environmental Controls Section follows... */}
-      <div className="bg-gray-800 p-6 rounded-lg">
-        <div className="flex items-center gap-3 mb-4">
-          <Thermometer className="w-6 h-6 text-emerald-500" />
-          <h3 className="text-lg font-semibold">Environmental Controls</h3>
-        </div>
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="space-y-4">
-              <h4 className="text-md font-medium text-emerald-500">Cooling System</h4>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span>Exhaust Fans</span>
-                  <span className="text-gray-400">4 × 48" Belt Drive</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span>Evaporative Cooling</span>
-                  <span className="text-gray-400">6' × 40' CELdek System</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span>Air Circulation</span>
-                  <span className="text-gray-400">8 × HAF-20 Fans</span>
-                </div>
-              </div>
-            </div>
-            
-            <div className="space-y-4">
-              <h4 className="text-md font-medium text-emerald-500">Heating System</h4>
-              <div className="space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span>Unit Heaters</span>
-                  <span className="text-gray-400">2 × 250,000 BTU</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span>Under-Bench</span>
-                  <span className="text-gray-400">4 × Hot Water Loops</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span>Energy Curtain</span>
-                  <span className="text-gray-400">Dual-Layer System</span>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="pt-4 border-t border-gray-700">
-            <button className="text-emerald-500 hover:text-emerald-400 text-sm font-medium">
-              Configure Environmental Controls →
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {showShareModal && (
-        <ShareProjectModal
-          projectId={structureId}
-          isOpen={showShareModal}
-          onClose={() => setShowShareModal(false)}
-        />
-      )}
     </div>
   );
 }
