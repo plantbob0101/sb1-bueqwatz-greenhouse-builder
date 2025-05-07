@@ -104,166 +104,115 @@ export default function DropWallForm({ wall, onSubmit, onCancel, structureId }: 
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {/* Basic Configuration */}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Type
-                </label>
-                <select
-                  name="type"
-                  value={formData.type}
-                  onChange={handleChange}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
-                >
-                  <option value="Guttered">Guttered</option>
-                  <option value="Quonset">Quonset</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Wall Location
-                </label>
-                <select
-                  name="wall_location"
-                  value={formData.wall_location}
-                  onChange={handleChange}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
-                >
-                  <option value="Sidewall">Sidewall</option>
-                  <option value="Endwall">Endwall</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Wall Height (ft)
-                </label>
-                <select
-                  name="wall_height"
-                  value={formData.wall_height}
-                  onChange={handleChange}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
-                >
-                  {getWallHeightOptions(formData.type).map(height => (
-                    <option key={height} value={height}>{height}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Wall Length (ft)
-                </label>
-                <input
-                  type="number"
-                  name="wall_length"
-                  value={formData.wall_length}
-                  onChange={handleChange}
-                  min={1}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Drive Type
-                </label>
-                <select
-                  name="drive_type"
-                  value={formData.drive_type}
-                  onChange={handleChange}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
-                >
-                  <option value="Manual">Manual</option>
-                  <option value="Motorized">Motorized</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Additional Configuration */}
-            <div className="space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  NS30
-                </label>
-                <select
-                  name="ns30"
-                  value={formData.ns30}
-                  onChange={handleChange}
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
-                >
-                  <option value="No">No</option>
-                  <option value="Yes">Yes</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Spacing
-                </label>
-                <select
-                  name="spacing"
-                  value={formData.spacing}
-                  onChange={handleChange}
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
-                >
-                  <option value="4">4</option>
-                  <option value="6">6</option>
-                  <option value="12">12</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  ATI House
-                </label>
-                <select
-                  name="ati_house"
-                  value={formData.ati_house}
-                  onChange={handleChange}
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
-                >
-                  <option value="No">No</option>
-                  <option value="Yes">Yes</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-300 mb-1">
-                  Quantity
-                </label>
-                <input
-                  type="number"
-                  name="quantity"
-                  value={formData.quantity}
-                  onChange={handleChange}
-                  min={1}
-                  required
-                  className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Additional Options */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {/* Row 1: Wall Location and Type */}
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-1">
-                Braking Winch with Mount
+                Wall Location*
+              </label>
+              <select
+                name="wall_location"
+                value={formData.wall_location}
+                onChange={handleChange}
+                required
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
+              >
+                <option value="Sidewall">Sidewall</option>
+                <option value="Endwall">Endwall</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                Type
+              </label>
+              <select
+                name="type"
+                value={formData.type}
+                onChange={handleChange}
+                required
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
+              >
+                <option value="Guttered">Guttered</option>
+                <option value="Quonset">Quonset</option>
+              </select>
+            </div>
+
+            {/* Row 2: Quantity and Height */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                Quantity
               </label>
               <input
                 type="number"
-                name="braking_winch_with_mount"
-                value={formData.braking_winch_with_mount}
+                name="quantity"
+                value={formData.quantity}
+                onChange={handleChange}
+                min={1}
+                required
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                Height (ft)
+              </label>
+              <select
+                name="wall_height"
+                value={formData.wall_height}
+                onChange={handleChange}
+                required
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
+              >
+                {getWallHeightOptions(formData.type).map(height => (
+                  <option key={height} value={height}>{height}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* Row 3: NS30 and Spacing */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                NS30
+              </label>
+              <select
+                name="ns30"
+                value={formData.ns30}
+                onChange={handleChange}
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
+              >
+                <option value="No">No</option>
+                <option value="Yes">Yes</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                Spacing
+              </label>
+              <select
+                name="spacing"
+                value={formData.spacing}
+                onChange={handleChange}
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
+              >
+                <option value="4">4'</option>
+                <option value="6">6'</option>
+              </select>
+            </div>
+
+            {/* Row 4: Length and Additional Corner Pockets */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                Length (ft)
+              </label>
+              <input
+                type="number"
+                name="wall_length"
+                value={formData.wall_length}
                 onChange={handleChange}
                 min={0}
+                required
                 className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
@@ -281,9 +230,56 @@ export default function DropWallForm({ wall, onSubmit, onCancel, structureId }: 
                 className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
+
+            {/* Row 5: Breaking Winch and ATI House */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                Breaking Winch with Mount
+              </label>
+              <input
+                type="number"
+                name="braking_winch_with_mount"
+                value={formData.braking_winch_with_mount}
+                onChange={handleChange}
+                min={0}
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                ATI House
+              </label>
+              <select
+                name="ati_house"
+                value={formData.ati_house}
+                onChange={handleChange}
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
+              >
+                <option value="No">No</option>
+                <option value="Yes">Yes</option>
+              </select>
+            </div>
+
+            {/* Row 6: Drive Type */}
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-1">
+                Drive Type
+              </label>
+              <select
+                name="drive_type"
+                value={formData.drive_type}
+                onChange={handleChange}
+                required
+                className="w-full bg-gray-700 border border-gray-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:ring-2 focus:ring-emerald-500 appearance-none bg-no-repeat bg-[right_0.5rem_center] bg-[length:1.5em_1.5em] bg-[url('data:image/svg+xml;charset=utf-8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2016%2016%22%3E%3Cpath%20fill%3D%22none%22%20stroke%3D%22%239ca3af%22%20stroke-linecap%3D%22round%22%20stroke-linejoin%3D%22round%22%20stroke-width%3D%222%22%20d%3D%22m2%206%206%206%206-6%22%2F%3E%3C%2Fsvg%3E')]"
+              >
+                <option value="Manual">Manual</option>
+                <option value="Motorized">Motorized</option>
+              </select>
+            </div>
           </div>
 
-          {/* Notes */}
+          {/* Notes Field - Full Width */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-1">
               Notes
@@ -299,7 +295,7 @@ export default function DropWallForm({ wall, onSubmit, onCancel, structureId }: 
           </div>
 
           {/* Form Actions */}
-          <div className="flex justify-end space-x-4 mt-6">
+          <div className="flex justify-end space-x-4">
             <button
               type="button"
               onClick={onCancel}
@@ -310,11 +306,9 @@ export default function DropWallForm({ wall, onSubmit, onCancel, structureId }: 
             <button
               type="submit"
               disabled={loading}
-              className={`px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 ${
-                loading ? 'opacity-50 cursor-not-allowed' : ''
-              }`}
+              className="px-4 py-2 bg-emerald-600 text-white text-sm font-medium rounded-lg hover:bg-emerald-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 focus:ring-offset-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Saving...' : wall ? 'Update Wall' : 'Add Wall'}
+              {loading ? 'Saving...' : wall ? 'Save Changes' : 'Add Wall'}
             </button>
           </div>
         </form>

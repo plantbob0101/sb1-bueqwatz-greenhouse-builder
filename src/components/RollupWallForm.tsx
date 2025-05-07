@@ -50,7 +50,7 @@ export default function RollupWallForm({ rollupWall, onSubmit, onCancel }: Rollu
     wall_height: rollupWall?.wall_height || 0,
     houses_wide_per_system: rollupWall?.houses_wide_per_system || 1,
     house_width: rollupWall?.house_width || 0,
-    frame_height: rollupWall?.frame_height || 0,
+    frame_height: rollupWall?.frame_height || 8, // Default to 8 for Guttered endwalls
     ns30: rollupWall?.ns30 || 'No',
     spacing: rollupWall?.spacing || "6'",
     wall_length: rollupWall?.wall_length || 0,
@@ -164,19 +164,60 @@ export default function RollupWallForm({ rollupWall, onSubmit, onCancel }: Rollu
     setLoading(true);
     setError(null);
 
-    // Validate and convert wall height
-    const wallHeight = Number(formData.wall_height);
-    if (isNaN(wallHeight) || wallHeight <= 0 || wallHeight > 14) {
-      setError('Wall height must be a number between 1 and 14 feet');
+    // Validate required fields
+    if (!formData.wall_location) {
+      setError('Wall location is required');
       setLoading(false);
       return;
     }
-    
-    // Create submission data without drive_id if none selected
+
+    if (!formData.type) {
+      setError('Wall type is required');
+      setLoading(false);
+      return;
+    }
+
+    const isEndwall = formData.wall_location === 'Endwall';
+
+    // Validate wall height and frame height based on wall location
+    if (isEndwall) {
+      const frameHeight = Number(formData.frame_height);
+      if (isNaN(frameHeight) || frameHeight <= 0) {
+        setError('Frame height must be a positive number');
+        setLoading(false);
+        return;
+      }
+    } else {
+      const wallHeight = Number(formData.wall_height);
+      if (isNaN(wallHeight) || wallHeight <= 0 || wallHeight > 14) {
+        setError('Wall height must be a number between 1 and 14 feet');
+        setLoading(false);
+        return;
+      }
+    }
+
+    // Validate wall length
+    const wallLength = Number(formData.wall_length);
+    if (isNaN(wallLength) || wallLength <= 0) {
+      setError('Wall length must be a positive number');
+      setLoading(false);
+      return;
+    }
+
+    // Create submission data with all required fields
     const submissionData = {
       ...formData,
-      wall_height: wallHeight,
-      drive_id: formData.drive_id || null // Set to null if empty string
+      wall_height: isEndwall ? Number(formData.frame_height) : Number(formData.wall_height),
+      wall_length: wallLength,
+      frame_height: isEndwall ? Number(formData.frame_height) : null,
+      drive_id: formData.drive_id || null,
+      drive_type: formData.drive_type || 'Manual',
+      ns30: formData.ns30 || 'No',
+      spacing: formData.spacing || '0',
+      quantity: formData.quantity || 1,
+      houses_wide_per_system: formData.houses_wide_per_system || 1,
+      type: formData.type || (isEndwall ? 'Guttered' : 'Quonset'),
+      wall_location: formData.wall_location
     };
 
     try {
@@ -274,6 +315,24 @@ export default function RollupWallForm({ rollupWall, onSubmit, onCancel }: Rollu
                 id="houses_wide_per_system"
                 name="houses_wide_per_system"
                 value={formData.houses_wide_per_system}
+                onChange={handleChange}
+                min={1}
+                required
+                className="w-full bg-gray-800 border border-gray-600 rounded-lg px-3 py-2 text-white 
+                         focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500
+                         transition-colors duration-200 ease-in-out shadow-sm"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="wall_length" className="block text-sm font-medium text-gray-300 mb-1">
+                Wall Length (ft) *
+              </label>
+              <input
+                type="number"
+                id="wall_length"
+                name="wall_length"
+                value={formData.wall_length}
                 onChange={handleChange}
                 min={1}
                 required
