@@ -245,6 +245,57 @@ export type Database = {
           },
         ]
       }
+      glazing_requirements: {
+        Row: {
+          id: number;
+          model: string;
+          width: number;
+          eave_height: number;
+          length: number;
+          section: string;
+          bay: string | null;
+          vent_type: string | null;
+          material_type: string;
+          area_sq_ft: number | null;
+          linear_ft: number | null;
+          panel_count: number | null;
+          panel_length: number | null;
+          notes: string | null;
+        };
+        Insert: {
+          id?: number;
+          model: string;
+          width: number;
+          eave_height: number;
+          length: number;
+          section: string;
+          bay?: string | null;
+          vent_type?: string | null;
+          material_type: string;
+          area_sq_ft?: number | null;
+          linear_ft?: number | null;
+          panel_count?: number | null;
+          panel_length?: number | null;
+          notes?: string | null;
+        };
+        Update: {
+          id?: number;
+          model?: string;
+          width?: number;
+          eave_height?: number;
+          length?: number;
+          section?: string;
+          bay?: string | null;
+          vent_type?: string | null;
+          material_type?: string;
+          area_sq_ft?: number | null;
+          linear_ft?: number | null;
+          panel_count?: number | null;
+          panel_length?: number | null;
+          notes?: string | null;
+        };
+        Relationships: [];
+      };
       cooling_zones: {
         Row: {
           created_at: string | null
@@ -1291,6 +1342,10 @@ export type Database = {
           zones: number
         }
         Update: {
+          a_bays?: number | null
+          b_bays?: number | null
+          c_bays?: number | null
+          d_bays?: number | null
           covering_endwalls?: string | null
           covering_gables?: string | null
           covering_roof?: string | null

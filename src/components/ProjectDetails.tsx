@@ -6,6 +6,7 @@ import VentForm from './VentForm';
 import RollupWallForm from './RollupWallForm';
 import DropWallForm from './DropWallForm';
 import ShareProjectModal from './ShareProjectModal';
+import GlazingWizard from './GlazingWizard';
 
 // Adjusted CombinedStructure Interface
 interface CombinedStructure {
@@ -36,6 +37,10 @@ interface CombinedStructure {
   endwall_concrete: boolean;
   gutter_partition_concrete: boolean;
   gable_partition_concrete: boolean;
+  a_bays: number;
+  b_bays: number;
+  c_bays: number;
+  d_bays: number;
 }
 
 interface ProjectDetailsProps {
@@ -165,7 +170,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
         if (structureError) throw structureError;
         if (!structureData) throw new Error('Project entry not found.');
 
-        // --- Correctly combine data into CombinedStructure --- 
+        // --- Correctly combine data into CombinedStructure ---
         const combinedData: CombinedStructure = {
           // Fields from structures table (use optional chaining)
           structure_id: structureData.structures?.structure_id ?? '', // Use ID from joined table
@@ -181,6 +186,12 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
           load_rating: structureData.structures?.load_rating ?? '',
           elevation: structureData.structures?.elevation ?? 'Standard',
           width: structureData.structures?.width ?? 0,
+
+          // New bay fields (default to 0 if missing)
+          a_bays: structureData.structures?.a_bays ?? 0,
+          b_bays: structureData.structures?.b_bays ?? 0,
+          c_bays: structureData.structures?.c_bays ?? 0,
+          d_bays: structureData.structures?.d_bays ?? 0,
 
           // Fields from structure_user_entries table (direct access)
           project_name: structureData.project_name ?? '',
@@ -1845,6 +1856,18 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
           )}
         </div>
       </div>
+      {/* Glazing Wizard Section */}
+      <GlazingWizard
+        projectId={structure.structure_id}
+        model={structure.model}
+        width={structure.width}
+        eaveHeight={structure.eave_height}
+        length={structure.length}
+        aBays={structure.a_bays}
+        bBays={structure.b_bays}
+        cBays={structure.c_bays}
+        dBays={structure.d_bays}
+      />
     </div>
   );
 }
