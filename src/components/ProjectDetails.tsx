@@ -1857,17 +1857,56 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
         </div>
       </div>
       {/* Glazing Wizard Section */}
-      <GlazingWizard
-        projectId={structure.structure_id}
-        model={structure.model}
-        width={structure.width}
-        eaveHeight={structure.eave_height}
-        length={structure.length}
-        aBays={structure.a_bays}
-        bBays={structure.b_bays}
-        cBays={structure.c_bays}
-        dBays={structure.d_bays}
-      />
+      {/* Only render GlazingWizard when structure is loaded */}
+      {structure && (() => {
+        // Get bay values directly from structure data
+        const aBays = structure.a_bays ?? 2;
+        const bBays = structure.b_bays ?? Math.max(Math.floor(structure.length_ft / 12) - 2, 0);
+        const cBays = structure.c_bays ?? Math.max(2 * ((structure.houses || 1) - 1), 0);
+        const dBays = structure.d_bays ?? Math.max((Math.floor(structure.length_ft / 12) - 2) * ((structure.houses || 1) - 1), 0);
+        
+        // DETAILED DEBUG: Log all relevant values for bay calculations
+        console.log('PROJECTDETAILS → GLAZINGWIZARD PROPS:', {
+          structureId: structure.structure_id,
+          model: structure.model,
+          width: structure.width,
+          eaveHeight: structure.eave_height,
+          length: structure.length,
+          length_ft: structure.length_ft,
+          houses: structure.houses,
+          rawBayValues: {
+            a_bays: structure.a_bays,
+            b_bays: structure.b_bays,
+            c_bays: structure.c_bays,
+            d_bays: structure.d_bays,
+          },
+          calculatedBayValues: {
+            aBays,
+            bBays,
+            cBays,
+            dBays
+          },
+          calculationDetails: {
+            bBaysCalc: `Math.max(Math.floor(${structure.length_ft} / 12) - 2, 0) = ${Math.max(Math.floor(structure.length_ft / 12) - 2, 0)}`,
+            housesValue: structure.houses || 1
+          }
+        });
+        return (
+          <GlazingWizard
+            projectId={structure.structure_id}
+            model={structure.model}
+            width={structure.width}
+            eaveHeight={structure.eave_height}
+            length={structure.length}
+            aBays={aBays}
+            bBays={bBays}
+            cBays={cBays}
+            dBays={dBays}
+          />
+        );
+      })()}
+
+
     </div>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Plus, Loader2, AlertCircle, Building2, Fan } from 'lucide-react';
+import { Settings as SettingsIcon, Plus, Loader2, AlertCircle, Building2, Fan, Table } from 'lucide-react';
 import { supabase } from '../../lib/supabase';
 import { Database } from '../../types/supabase';
 import PC8GlazingTab from './PC8GlazingTab';
@@ -8,10 +8,11 @@ import StructureForm from './StructureForm';
 import VentDrivesTab from './VentDrivesTab';
 import RollupDropDrivesTab from './RollupDropDrivesTab';
 import CurtainFabricsTab from './CurtainFabricsTab';
+import GlazingRequirementsTab from './GlazingRequirementsTab';
 
 type Structure = Database['public']['Tables']['structures']['Row'];
 
-type Tab = 'structures' | 'vent-drives' | 'rollup-drop-drives' | 'pc8-glazing' | 'poly-glazing' | 'curtain-fabrics' | 'cooling' | 'heating';
+type Tab = 'structures' | 'vent-drives' | 'rollup-drop-drives' | 'pc8-glazing' | 'poly-glazing' | 'curtain-fabrics' | 'glazing-requirements' | 'cooling' | 'heating';
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'structures', label: 'Structures', icon: <Building2 className="w-4 h-4" /> },
@@ -20,6 +21,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'pc8-glazing', label: 'PC8 & CPC Glazing', icon: <Building2 className="w-4 h-4" /> },
   { id: 'poly-glazing', label: 'Poly Glazing', icon: <Building2 className="w-4 h-4" /> },
   { id: 'curtain-fabrics', label: 'Curtain Fabrics', icon: <Building2 className="w-4 h-4" /> },
+  { id: 'glazing-requirements', label: 'Glazing Requirements', icon: <Table className="w-4 h-4" /> },
 ];
 
 export default function SettingsPage() {
@@ -178,7 +180,7 @@ export default function SettingsPage() {
                     {structure.roof_glazing}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">
-                    {new Date(structure.created_at).toLocaleDateString()}
+                    {structure.created_at ? new Date(structure.created_at).toLocaleDateString() : 'N/A'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <button
@@ -212,6 +214,8 @@ export default function SettingsPage() {
         <PolyGlazingTab />
       ) : currentTab === 'curtain-fabrics' ? (
         <CurtainFabricsTab />
+      ) : currentTab === 'glazing-requirements' ? (
+        <GlazingRequirementsTab />
       ) : (
         <div className="text-center py-8 text-gray-400">
           Content for {currentTab} will be added soon
