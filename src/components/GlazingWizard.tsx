@@ -73,15 +73,11 @@ const SECTION_LABELS: Record<string, string> = {
   base: 'Base Material'
 };
 
-// Material options
-const MATERIAL_OPTIONS = [
-  { value: 'polycarbonate_8mm', label: 'Polycarbonate 8mm' },
-  { value: 'polycarbonate_16mm', label: 'Polycarbonate 16mm' },
-  { value: 'polycarbonate_16mm_triple', label: 'Polycarbonate 16mm Triple Wall' },
-  { value: 'polycarbonate_25mm', label: 'Polycarbonate 25mm' },
-  { value: 'glass', label: 'Glass' },
-  { value: 'tempered_glass', label: 'Tempered Glass' }
-];
+// Material options will be fetched from the database
+interface MaterialOption {
+  value: string;
+  label: string;
+}
 
 export default function GlazingWizard({
   projectId,
@@ -107,13 +103,29 @@ export default function GlazingWizard({
   // Normalized model name for compatibility
   const normalizedModel = model.replace(/\s+/g, '_').toLowerCase();
   
+  // Model name mapping for compatibility with database entries
+  // This maps model codes like 'SL18' to their full names like 'Solar Light'
+  const MODEL_NAME_MAPPING: Record<string, string> = {
+    'sl18': 'Solar Light',
+    'SL18': 'Solar Light'
+  };
+  
+  // Get the mapped model name if it exists, otherwise use the original
+  const mappedModelName = MODEL_NAME_MAPPING[model] || model;
+  
   // Component state
   const [sections, setSections] = useState<GlazingSection[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [showDebug, setShowDebug] = useState<boolean>(false);
   const [showBayDetails, setShowBayDetails] = useState<boolean>(false);
-  const [roofMaterial, setRoofMaterial] = useState<string>('polycarbonate_8mm');
+  const [roofMaterial, setRoofMaterial] = useState<string>('');
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
+  const [materialOptions, setMaterialOptions] = useState<MaterialOption[]>([]);
+
+  // Fetch material options on component mount
+  useEffect(() => {
+    fetchMaterialTypes();
+  }, []);
 
   // Fetch glazing requirements when inputs change
   useEffect(() => {
@@ -121,6 +133,41 @@ export default function GlazingWizard({
       fetchGlazingRequirements();
     }
   }, [projectId, model, width, eaveHeight, length, aBays, bBays, cBays, dBays, roofMaterial, normalizedModel]);
+  
+  // Function to fetch material types from the database
+  async function fetchMaterialTypes() {
+    try {
+      const { data, error } = await supabase
+        .from('glazing_requirements')
+        .select('material_type')
+        .order('material_type');
+
+      if (error) {
+        console.error('Error fetching material types:', error);
+        return;
+      }
+
+      if (data && data.length > 0) {
+        // Extract unique material types
+        const uniqueMaterials = Array.from(new Set(data.map(item => item.material_type)));
+        
+        // Create options array
+        const options = uniqueMaterials.map(material => ({
+          value: material,
+          label: material
+        }));
+        
+        setMaterialOptions(options);
+        
+        // Set default roof material if we have options and current is empty
+        if (options.length > 0 && !roofMaterial) {
+          setRoofMaterial(options[0].value);
+        }
+      }
+    } catch (err) {
+      console.error('Error in fetchMaterialTypes:', err);
+    }
+  }
 
   // Function to fetch glazing requirements from the database
   async function fetchGlazingRequirements() {
@@ -136,11 +183,26 @@ export default function GlazingWizard({
       dBaysType: typeof dBays
     });
 
-    // Convert bay values robustly using parseFloat(String(value))
-    const numABays = parseFloat(String(aBays)) || 0; 
-    const numBBays = parseFloat(String(bBays)) || 0;
-    const numCBays = parseFloat(String(cBays)) || 0;
-    const numDBays = parseFloat(String(dBays)) || 0;
+    // CRITICAL FIX: Ensure we're working with proper numeric values
+    // We need to handle the case where Number(0) becomes 0, which is falsy
+    // So we can't use || 0 as it would replace 0 with 0 (but mask the fact that we got a real 0)
+    // Also ensure we're preserving the original values for display purposes
+    // For calculations, we'll use the numeric versions
+    const numABays = aBays === 0 ? 0 : (isNaN(Number(aBays)) ? 0 : Number(aBays));
+    const numBBays = bBays === 0 ? 0 : (isNaN(Number(bBays)) ? 0 : Number(bBays));
+    const numCBays = cBays === 0 ? 0 : (isNaN(Number(cBays)) ? 0 : Number(cBays));
+    const numDBays = dBays === 0 ? 0 : (isNaN(Number(dBays)) ? 0 : Number(dBays));
+    
+    // ADDITIONAL CHECK: Log the raw input values and their types
+    console.log('Raw bay values before conversion:', {
+      aBays, bBays, cBays, dBays,
+      types: {
+        aBaysType: typeof aBays,
+        bBaysType: typeof bBays,
+        cBaysType: typeof cBays,
+        dBaysType: typeof dBays
+      }
+    });
 
     // Log after conversion to verify
     console.log('Properly converted bay values using parseFloat(String()):', {
@@ -150,21 +212,59 @@ export default function GlazingWizard({
 
     try {
       // Fetch bay-specific glazing requirements
+      // Use the mapped model name to match database entries
       const { data: bayData, error: bayError } = await supabase
         .from('glazing_requirements')
         .select('*')
-        .or(`model.eq.${normalizedModel},model.eq.${model}`)
+        .or(`model.eq.${normalizedModel},model.eq.${model},model.eq.${mappedModelName}`)
         .or('section.eq.A Bay,section.eq.B Bay,section.eq.C Bay,section.eq.D Bay');
+      
+      // Log the model names being used for debugging
+      console.log('Model names used in query:', {
+        original: model,
+        normalized: normalizedModel,
+        mapped: mappedModelName
+      });
 
       console.log('Bay data query results:', { bayData, bayError });
       
       // Fetch general glazing requirements
-      const { data, error } = await supabase
+      // Try with the mapped model name first
+      let queryData;
+      let queryError;
+      
+      const { data: mappedData, error: mappedError } = await supabase
         .from('glazing_requirements')
         .select('*')
-        .eq('model', normalizedModel)
+        .eq('model', mappedModelName) // Use mapped model name
         .eq('width', width)
         .eq('eave_height', eaveHeight);
+      
+      // Store the results
+      queryData = mappedData;
+      queryError = mappedError;
+        
+      // If no data found with mapped name, try with original or normalized name
+      if (!queryData || queryData.length === 0) {
+        console.log(`No data found for mapped model name '${mappedModelName}', trying with original/normalized model names`);
+        
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from('glazing_requirements')
+          .select('*')
+          .or(`model.eq.${normalizedModel},model.eq.${model}`)
+          .eq('width', width)
+          .eq('eave_height', eaveHeight);
+          
+        if (fallbackData && fallbackData.length > 0) {
+          // Use the fallback data
+          queryData = fallbackData;
+          queryError = fallbackError;
+        }
+      }
+      
+      // Use the data from either the primary or fallback query
+      const data = queryData;
+      const error = queryError;
 
       if (error) {
         console.error('Error fetching glazing requirements:', error);
@@ -214,15 +314,49 @@ export default function GlazingWizard({
         }
       }
       
+      // DETAILED DEBUGGING: Log bay areas before calculation
+      console.log('Bay areas from database or defaults:', {
+        areaA, areaB, areaC, areaD,
+        sources: { areaASource, areaBSource, areaCSource, areaDSource }
+      });
+      
+      // DETAILED DEBUGGING: Log bay counts after conversion
+      console.log('Final bay counts used for calculation:', {
+        numABays, numBBays, numCBays, numDBays,
+        types: {
+          numABaysType: typeof numABays,
+          numBBaysType: typeof numBBays,
+          numCBaysType: typeof numCBays,
+          numDBaysType: typeof numDBays
+        }
+      });
+      
       // Calculate the roof area based on the bay counts and areas
       const aBaysContribution = numABays * areaA;
       const bBaysContribution = numBBays * areaB;
       const cBaysContribution = numCBays * areaC;
       const dBaysContribution = numDBays * areaD;
       
+      // DETAILED DEBUGGING: Log individual contributions
+      console.log('Individual bay contributions to roof area:', {
+        aBaysContribution: `${numABays} × ${areaA} = ${aBaysContribution}`,
+        bBaysContribution: `${numBBays} × ${areaB} = ${bBaysContribution}`,
+        cBaysContribution: `${numCBays} × ${areaC} = ${cBaysContribution}`,
+        dBaysContribution: `${numDBays} × ${areaD} = ${dBaysContribution}`
+      });
+      
       const calculatedRoofArea = aBaysContribution + bBaysContribution + cBaysContribution + dBaysContribution;
       
+      // DETAILED DEBUGGING: Log final calculated roof area
+      console.log('Final calculated roof area:', {
+        calculatedRoofArea,
+        formula: `${aBaysContribution} + ${bBaysContribution} + ${cBaysContribution} + ${dBaysContribution} = ${calculatedRoofArea}`
+      });
+      
       // Set debug info for displaying in the UI
+      // CRITICAL: Make sure we're displaying the exact values that were passed as props
+      console.log('Setting debug info with bay values:', { aBays, bBays, cBays, dBays });
+      
       setDebugInfo({
         inputValues: {
           projectId,
@@ -231,10 +365,11 @@ export default function GlazingWizard({
           width,
           eaveHeight,
           length,
-          aBays: numABays,
-          bBays: numBBays,
-          cBays: numCBays,
-          dBays: numDBays
+          // Force these to be the exact values passed as props
+          aBays: Number(aBays), 
+          bBays: Number(bBays),
+          cBays: Number(cBays),
+          dBays: Number(dBays)
         },
         calculations: {
           numABays,
@@ -548,11 +683,15 @@ export default function GlazingWizard({
                       onChange={handleRoofMaterialChange}
                       className="bg-gray-700 text-white border border-gray-600 rounded p-1 text-sm"
                     >
-                      {MATERIAL_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
+                      {materialOptions.length > 0 ? (
+                        materialOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))
+                      ) : (
+                        <option value="">Loading materials...</option>
+                      )}
                     </select>
                   ) : section.editable ? (
                     <select
@@ -560,11 +699,15 @@ export default function GlazingWizard({
                       onChange={(e) => handleMaterialChange(idx, e.target.value)}
                       className="bg-gray-700 text-white border border-gray-600 rounded p-1 text-sm"
                     >
-                      {MATERIAL_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
+                      {materialOptions.length > 0 ? (
+                        materialOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))
+                      ) : (
+                        <option value="">Loading materials...</option>
+                      )}
                     </select>
                   ) : (
                     section.material

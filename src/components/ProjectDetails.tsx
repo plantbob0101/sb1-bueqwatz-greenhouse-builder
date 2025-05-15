@@ -37,10 +37,10 @@ interface CombinedStructure {
   endwall_concrete: boolean;
   gutter_partition_concrete: boolean;
   gable_partition_concrete: boolean;
-  a_bays: number;
-  b_bays: number;
-  c_bays: number;
-  d_bays: number;
+  a_bays?: number | null;
+  b_bays?: number | null;
+  c_bays?: number | null;
+  d_bays?: number | null;
 }
 
 interface ProjectDetailsProps {
@@ -187,11 +187,11 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
           elevation: structureData.structures?.elevation ?? 'Standard',
           width: structureData.structures?.width ?? 0,
 
-          // New bay fields (default to 0 if missing)
-          a_bays: structureData.structures?.a_bays ?? 0,
-          b_bays: structureData.structures?.b_bays ?? 0,
-          c_bays: structureData.structures?.c_bays ?? 0,
-          d_bays: structureData.structures?.d_bays ?? 0,
+          // New bay fields (allow undefined/null)
+          a_bays: structureData.structures?.a_bays,
+          b_bays: structureData.structures?.b_bays,
+          c_bays: structureData.structures?.c_bays,
+          d_bays: structureData.structures?.d_bays,
 
           // Fields from structure_user_entries table (direct access)
           project_name: structureData.project_name ?? '',
@@ -1859,11 +1859,20 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
       {/* Glazing Wizard Section */}
       {/* Only render GlazingWizard when structure is loaded */}
       {structure && (() => {
-        // Get bay values directly from structure data
-        const aBays = structure.a_bays ?? 2;
-        const bBays = structure.b_bays ?? Math.max(Math.floor(structure.length_ft / 12) - 2, 0);
-        const cBays = structure.c_bays ?? Math.max(2 * ((structure.houses || 1) - 1), 0);
-        const dBays = structure.d_bays ?? Math.max((Math.floor(structure.length_ft / 12) - 2) * ((structure.houses || 1) - 1), 0);
+        // Get bay values directly from structure data, properly handling zero values
+        // Use strict check for undefined/null instead of nullish coalescing to preserve zero values
+        // Convert values to explicit numbers to ensure proper type handling
+        // IMPORTANT: We need to ensure these values are actual numbers, not strings or undefined
+        let aBays = structure.a_bays !== undefined && structure.a_bays !== null ? structure.a_bays : 2;
+        let bBays = structure.b_bays !== undefined && structure.b_bays !== null ? structure.b_bays : Math.max(Math.floor(structure.length_ft / 12) - 2, 0);
+        let cBays = structure.c_bays !== undefined && structure.c_bays !== null ? structure.c_bays : Math.max(2 * ((structure.houses || 1) - 1), 0);
+        let dBays = structure.d_bays !== undefined && structure.d_bays !== null ? structure.d_bays : Math.max((Math.floor(structure.length_ft / 12) - 2) * ((structure.houses || 1) - 1), 0);
+        
+        // Force conversion to number type to ensure consistency
+        aBays = Number(aBays);
+        bBays = Number(bBays);
+        cBays = Number(cBays);
+        dBays = Number(dBays);
         
         // DETAILED DEBUG: Log all relevant values for bay calculations
         console.log('PROJECTDETAILS → GLAZINGWIZARD PROPS:', {
