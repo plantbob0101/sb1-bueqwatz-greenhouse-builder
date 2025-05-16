@@ -2,11 +2,43 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#1f2937">
+    <meta name="description" content="Greenhouse Builder - Design and customize your perfect greenhouse">
     <title>Greenhouse Builder</title>
+    
+    <!-- Preconnect to external domains -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    
+    <!-- Preload critical assets -->
+    <link rel="preload" as="style" href="/src/index.css">
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link rel="alternate icon" href="/favicon.ico">
+    
+    <!-- Apple Touch Icon -->
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   </head>
   <body class="bg-gray-900">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
+    
+    <!-- Fallback for browsers that don't support ES modules -->
+    <script nomodule>
+      window.addEventListener('load', function() {
+        const root = document.getElementById('root');
+        if (root) {
+          root.innerHTML = `
+            <div style="color: white; text-align: center; padding: 2rem; font-family: system-ui, sans-serif;">
+              <h1>Browser Not Supported</h1>
+              <p>Please use a modern browser to view this application.</p>
+              <p>Recommended: Chrome, Firefox, Safari, or Edge (latest versions)</p>
+            </div>
+          `;
+        }
+      });
+    </script>
   </body>
 </html>
