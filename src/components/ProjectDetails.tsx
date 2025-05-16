@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Building2, Ruler, Wind, Edit2, Share2, Trash2, Save, X, Plus, Fan, Settings } from 'lucide-react';
+import { ArrowLeft, Building2, Ruler, Wind, Edit2, Trash2, Save, X, Plus, Fan, Settings } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { Database } from '../types/supabase';
 import VentForm from './VentForm';
 import RollupWallForm from './RollupWallForm';
 import DropWallForm from './DropWallForm';
-import ShareProjectModal from './ShareProjectModal';
 import GlazingWizard from './GlazingWizard';
 
 // Adjusted CombinedStructure Interface
@@ -76,7 +75,6 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
   const [editedStructure, setEditedStructure] = useState<CombinedStructure | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [showShareModal, setShowShareModal] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
 
   const [rollupWalls, setRollupWalls] = useState<any[]>([]);
@@ -110,6 +108,8 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
   const [calculatedBaseComponents, setCalculatedBaseComponents] = useState<CalculatedComponent[]>([]);
 
   const [isConcreteModalOpen, setIsConcreteModalOpen] = useState(false);
+
+  const [roofVentTypeForGlazing, setRoofVentTypeForGlazing] = useState<"Non-Vented" | "Single Vent" | "Double Vent" | null>(null);
 
   const saveConcreteSettings = async (settings: {
     sidewall_concrete: boolean;
@@ -245,6 +245,36 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
         if (ventError) throw ventError;
         setVents(ventData || []);
 
+        // Determine roof vent configuration for GlazingWizard
+        if (ventData && ventData.length > 0) {
+          let determinedConfig: "Non-Vented" | "Single Vent" | "Double Vent" = "Non-Vented";
+          let foundSingle = false;
+
+          // Properly type vent item here for clarity, assuming ventData items match expected structure
+          // type VentRow = Database['public']['Tables']['vents']['Row']; 
+          // For now, using 'as any' to avoid breaking if structure is slightly different, but ideally type this.
+
+          for (const vent of ventData as any[]) { 
+            const isRoofVent = vent.vent_type && typeof vent.vent_type === 'string' && vent.vent_type.toLowerCase().includes('roof');
+
+            if (isRoofVent) {
+              if (vent.single_double === "Double") {
+                determinedConfig = "Double Vent";
+                break; // Double takes precedence
+              } else if (vent.single_double === "Single") {
+                foundSingle = true; // Mark single found, continue in case of double
+              }
+            }
+          }
+
+          if (determinedConfig !== "Double Vent" && foundSingle) {
+            determinedConfig = "Single Vent";
+          }
+          setRoofVentTypeForGlazing(determinedConfig);
+        } else {
+          setRoofVentTypeForGlazing("Non-Vented"); // No vents means non-vented roof
+        }
+
         // Load roll-up walls
         const { data: wallData, error: wallError } = await supabase
           .from('rollup_walls')
@@ -333,33 +363,76 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
   };
 
   const handleSave = async () => {
-    if (!editedStructure) return; // Add back null check
+    if (!editedStructure) return;
     setIsSaving(true);
     setSaveError(null);
 
-    // --- Prepare update data for structure_user_entries ---
-    const updateData = {
-      project_name: editedStructure.project_name ?? undefined, // Handle null -> undefined if needed
-      description: editedStructure.description ?? undefined,
-      width_ft: editedStructure.width_ft,
-      length_ft: editedStructure.length_ft,
-      covering_roof: editedStructure.covering_roof ?? undefined,
-      covering_sidewalls: editedStructure.covering_sidewalls ?? undefined,
-      covering_endwalls: editedStructure.covering_endwalls ?? undefined,
-      covering_gables: editedStructure.covering_gables ?? undefined,
-      status: editedStructure.status ?? undefined,
-      // Do NOT include structure_id or other fields from the 'structures' table
+    // Data for 'structure_user_entries' table
+    const userEntryUpdateData: Partial<Database['public']['Tables']['structure_user_entries']['Row']> = {
+      project_name: editedStructure.project_name,
+      description: editedStructure.description,
+      status: editedStructure.status,
     };
 
-    try {
-      const { error } = await supabase
-        .from('structure_user_entries')
-        .update(updateData) // Use the prepared data
-        .eq('entry_id', structureId); // structureId holds the entry_id
+    // Data for 'structures' table
+    const structureUpdateData: Partial<Database['public']['Tables']['structures']['Row']> = {
+      // structure_id is used in .eq(), not for update.
+      model: editedStructure.model,
+      width: editedStructure.width, // As per DB schema
+      // length: editedStructure.length, // REMOVED: 'length' column does not exist in DB
+      eave_height: editedStructure.eave_height, // Corrected to 'eave_height' as per DB
+      spacing: editedStructure.spacing,      // Corrected to 'spacing' as per DB
+      zones: editedStructure.zones,          // Corrected to 'zones' as per DB
+      ranges: editedStructure.ranges,
+      houses: editedStructure.houses,
+      roof_glazing: editedStructure.roof_glazing,
+      covering_roof: editedStructure.covering_roof,
+      covering_sidewalls: editedStructure.covering_sidewalls,
+      covering_endwalls: editedStructure.covering_endwalls,
+      covering_gables: editedStructure.covering_gables,
+      gutter_partitions: editedStructure.gutter_partitions,
+      gable_partitions: editedStructure.gable_partitions,
+      load_rating: editedStructure.load_rating,
+      elevation: editedStructure.elevation,
+      a_bays: editedStructure.a_bays,
+      b_bays: editedStructure.b_bays,
+      c_bays: editedStructure.c_bays,
+      d_bays: editedStructure.d_bays,
+      // user_id is likely set on creation or via RLS, not typically updated here.
+      // created_at is auto-managed.
+      // gutter_connected is another field in supabase.ts (if screenshot is partial) if editable add it.
+    };
 
-      if (error) throw error;
-      // Successfully updated, set the main structure state
-      setStructure(editedStructure as CombinedStructure);
+    // Clean undefined properties (optional, Supabase client might handle it)
+    Object.keys(userEntryUpdateData).forEach(key => {
+      if ((userEntryUpdateData as any)[key] === undefined) delete (userEntryUpdateData as any)[key];
+    });
+    Object.keys(structureUpdateData).forEach(key => {
+      if ((structureUpdateData as any)[key] === undefined) delete (structureUpdateData as any)[key];
+    });
+
+    try {
+      // 1. Update 'structure_user_entries' table
+      const { error: userEntryError } = await supabase
+        .from('structure_user_entries')
+        .update(userEntryUpdateData)
+        .eq('entry_id', structureId); // structureId is the entry_id for structure_user_entries
+
+      if (userEntryError) throw userEntryError;
+
+      // 2. Update 'structures' table
+      if (editedStructure.structure_id) {
+        const { error: structureError } = await supabase
+          .from('structures')
+          .update(structureUpdateData)
+          .eq('structure_id', editedStructure.structure_id);
+        if (structureError) throw structureError;
+      } else {
+        console.warn("Skipping structures table update: structure_id is missing from editedStructure.");
+        // Potentially set a user-facing error if this is unexpected
+      }
+
+      setStructure(JSON.parse(JSON.stringify(editedStructure)) as CombinedStructure); // Deep copy for local state
       setIsEditing(false);
     } catch (err) {
       console.error("Save error:", err); // Log the detailed error
@@ -399,24 +472,28 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     if (!editedStructure) return;
     const { name, value, type } = e.target;
+    const target = e.target as HTMLInputElement; // For checkbox type
 
-    let processedValue: string | number | boolean = value; // Default to string
+    let processedValue: string | number | boolean | null = value;
 
     if (type === 'number') {
-      processedValue = Number(value);
+      if (String(value).trim() === '') {
+        processedValue = null; // Treat empty number fields as null
+      } else {
+        const num = parseFloat(String(value));
+        processedValue = isNaN(num) ? null : num; // If not a valid number, null, else the number
+      }
+    } else if (type === 'checkbox') {
+      processedValue = target.checked;
     }
-    // Add handling for checkboxes if they exist:
-    // if (type === 'checkbox') {
-    //   processedValue = (e.target as HTMLInputElement).checked;
-    // }
+    // For select and text inputs, 'value' is already correct as a string.
 
     setEditedStructure(prev => {
-      if (!prev) return null; // Should not happen due to guard clause, but satisfies TS
+      if (!prev) return null;
       const updated = {
         ...prev,
         [name]: processedValue,
       };
-      // Explicitly cast back to CombinedStructure to satisfy TypeScript
       return updated as CombinedStructure;
     });
   };
@@ -936,6 +1013,75 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
     };
   }, []);
 
+  // Determine effective structure for display and calculations
+  const effectiveStructure = isEditing ? editedStructure : structure;
+  const currentLengthFt = effectiveStructure?.length_ft ?? 0;
+  const currentHouses = effectiveStructure?.houses ?? 1;
+  const currentSpacing = effectiveStructure?.spacing ?? 12;
+
+  // Calculated display/default values for bay counts
+  const displayABays = 2;
+  const baysInOneRange = Math.max(0, Math.floor(currentLengthFt / currentSpacing) - 2);
+  const displayBBays = baysInOneRange;
+  const displayCBays = (currentHouses > 1) ? 2 * (currentHouses - 1) : 0;
+  const displayDBays = (currentHouses > 1) ? baysInOneRange * (currentHouses - 1) : 0;
+
+  let glazingWizardProps = null;
+  const sourceForProps = editedStructure || structure;
+
+  if (sourceForProps) {
+    const lengthFt = sourceForProps.length_ft;
+    const currentHouses = sourceForProps.houses || 1;
+    const spacing = sourceForProps.spacing || 12;
+
+    const parseBayValue = (value: any): number | null => {
+      if (value === null || value === undefined || String(value).trim() === '') return null;
+      const num = parseFloat(String(value));
+      return isNaN(num) ? null : num;
+    };
+
+    // Default TOTAL bay component calculations (matching 'Additional Specifications' display logic)
+    const defaultTotalABays = 2;
+    const baysInOneRange = Math.max(0, Math.floor(lengthFt / spacing) - 2);
+    const defaultTotalBBays = baysInOneRange; // B-Bays for the first range, or if only one range.
+    const defaultTotalCBays = (currentHouses > 1) ? 2 * (currentHouses - 1) : 0;
+    const defaultTotalDBays = (currentHouses > 1) ? baysInOneRange * (currentHouses - 1) : 0;
+    
+    // For clarity on what D is in a multi-house context if B already covers it:
+    // The formulas from the display were: A=2, B=calc, C=2*(h-1), D=calc*(h-1)
+    // This implies a structure where B is per range, and D is B's equivalent for additional ranges if C are A's equivalent.
+    // If the intent is Total B bays = baysInOneRange * currentHouses, and C/D are separate, the formulas need to be distinct.
+    // Based on user's 2A,6B,2C,6D example for 2 houses, 96ft (where baysInOneRange = 6):
+    // A=2, B=6, C=2, D=6. This matches the defaultTotal formulas if they represent the final component counts.
+
+    // Use database values if they exist and are numbers, otherwise use calculated default totals.
+    const finalTotalABays = parseBayValue(sourceForProps.a_bays) ?? defaultTotalABays;
+    const finalTotalBBays = parseBayValue(sourceForProps.b_bays) ?? defaultTotalBBays;
+    const finalTotalCBays = parseBayValue(sourceForProps.c_bays) ?? defaultTotalCBays;
+    const finalTotalDBays = parseBayValue(sourceForProps.d_bays) ?? defaultTotalDBays;
+
+    // Logging for clarity
+    console.log('PROJECTDETAILS → Source data for props:', sourceForProps);
+    console.log('PROJECTDETAILS → Default Calculated Totals (from Addtl Specs logic):', { defaultTotalABays, defaultTotalBBays, defaultTotalCBays, defaultTotalDBays, houses: currentHouses });
+    console.log('PROJECTDETAILS → DB Overrides (if any):', { db_a: sourceForProps.a_bays, db_b: sourceForProps.b_bays, db_c: sourceForProps.c_bays, db_d: sourceForProps.d_bays });
+    console.log('PROJECTDETAILS → Final Total Component Counts Passed to GlazingWizard:', { finalTotalABays, finalTotalBBays, finalTotalCBays, finalTotalDBays });
+
+    glazingWizardProps = {
+      projectId: structureId, 
+      model: sourceForProps.model,
+      width: sourceForProps.width_ft,
+      eaveHeight: sourceForProps.eave_height,
+      length: lengthFt,
+      numHouses: currentHouses, // numHouses is still relevant for Wizard's internal logic/display
+      aBays: finalTotalABays,
+      bBays: finalTotalBBays,
+      cBays: finalTotalCBays,
+      dBays: finalTotalDBays,
+      roofGlazingType: sourceForProps.roof_glazing,
+      initialRoofVentConfig: roofVentTypeForGlazing, 
+    };
+  }
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -967,13 +1113,6 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
         <div className="flex gap-2">
           {!isEditing ? (
             <>
-              <button
-                onClick={() => setShowShareModal(true)}
-                className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-emerald-500"
-                title="Share Project"
-              >
-                <Share2 className="w-5 h-5" />
-              </button>
               <button
                 onClick={handleEdit}
                 className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-emerald-500"
@@ -1198,19 +1337,71 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
             </div>
             <div className="flex justify-between">
               <dt>A Bays:</dt>
-              <dd className="font-medium">2</dd>
+              <dd className="font-medium">
+                {isEditing ? (
+                  <input
+                    type="number"
+                    name="a_bays"
+                    value={editedStructure?.a_bays ?? displayABays}
+                    onChange={handleInputChange}
+                    min={0}
+                    className="bg-gray-700 border border-gray-600 rounded w-20 px-2 py-1 text-right"
+                  />
+                ) : (
+                  displayABays
+                )}
+              </dd>
             </div>
             <div className="flex justify-between">
               <dt>B Bays:</dt>
-              <dd className="font-medium">{Math.floor(structure.length_ft / 12) - 2}</dd>
+              <dd className="font-medium">
+                {isEditing ? (
+                  <input
+                    type="number"
+                    name="b_bays"
+                    value={editedStructure?.b_bays ?? displayBBays}
+                    onChange={handleInputChange}
+                    min={0}
+                    className="bg-gray-700 border border-gray-600 rounded w-20 px-2 py-1 text-right"
+                  />
+                ) : (
+                  displayBBays
+                )}
+              </dd>
             </div>
             <div className="flex justify-between">
               <dt>C Bays:</dt>
-              <dd className="font-medium">{2 * ((structure.houses || 1) - 1)}</dd>
+              <dd className="font-medium">
+                {isEditing ? (
+                  <input
+                    type="number"
+                    name="c_bays"
+                    value={editedStructure?.c_bays ?? displayCBays}
+                    onChange={handleInputChange}
+                    min={0}
+                    className="bg-gray-700 border border-gray-600 rounded w-20 px-2 py-1 text-right"
+                  />
+                ) : (
+                  displayCBays
+                )}
+              </dd>
             </div>
             <div className="flex justify-between">
               <dt>D Bays:</dt>
-              <dd className="font-medium">{(Math.floor(structure.length_ft / 12) - 2) * ((structure.houses || 1) - 1)}</dd>
+              <dd className="font-medium">
+                {isEditing ? (
+                  <input
+                    type="number"
+                    name="d_bays"
+                    value={editedStructure?.d_bays ?? displayDBays}
+                    onChange={handleInputChange}
+                    min={0}
+                    className="bg-gray-700 border border-gray-600 rounded w-20 px-2 py-1 text-right"
+                  />
+                ) : (
+                  displayDBays
+                )}
+              </dd>
             </div>
           </dl>
         </div>
@@ -1621,9 +1812,6 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
                     </p>
                     <p>NS30: {wall.ns30} | Spacing: {wall.spacing} | ATI House: {wall.ati_house}</p>
                     <p>Quantity: {wall.quantity}</p>
-                    {wall.notes && (
-                      <p>Notes: {wall.notes}</p>
-                    )}
                   </div>
                 </div>
                 <div className="flex gap-2">
@@ -1857,65 +2045,16 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
         </div>
       </div>
       {/* Glazing Wizard Section */}
-      {/* Only render GlazingWizard when structure is loaded */}
-      {structure && (() => {
-        // Get bay values directly from structure data, properly handling zero values
-        // Use strict check for undefined/null instead of nullish coalescing to preserve zero values
-        // Convert values to explicit numbers to ensure proper type handling
-        // IMPORTANT: We need to ensure these values are actual numbers, not strings or undefined
-        let aBays = structure.a_bays !== undefined && structure.a_bays !== null ? structure.a_bays : 2;
-        let bBays = structure.b_bays !== undefined && structure.b_bays !== null ? structure.b_bays : Math.max(Math.floor(structure.length_ft / 12) - 2, 0);
-        let cBays = structure.c_bays !== undefined && structure.c_bays !== null ? structure.c_bays : Math.max(2 * ((structure.houses || 1) - 1), 0);
-        let dBays = structure.d_bays !== undefined && structure.d_bays !== null ? structure.d_bays : Math.max((Math.floor(structure.length_ft / 12) - 2) * ((structure.houses || 1) - 1), 0);
-        
-        // Force conversion to number type to ensure consistency
-        aBays = Number(aBays);
-        bBays = Number(bBays);
-        cBays = Number(cBays);
-        dBays = Number(dBays);
-        
-        // DETAILED DEBUG: Log all relevant values for bay calculations
-        console.log('PROJECTDETAILS → GLAZINGWIZARD PROPS:', {
-          structureId: structure.structure_id,
-          model: structure.model,
-          width: structure.width,
-          eaveHeight: structure.eave_height,
-          length: structure.length,
-          length_ft: structure.length_ft,
-          houses: structure.houses,
-          rawBayValues: {
-            a_bays: structure.a_bays,
-            b_bays: structure.b_bays,
-            c_bays: structure.c_bays,
-            d_bays: structure.d_bays,
-          },
-          calculatedBayValues: {
-            aBays,
-            bBays,
-            cBays,
-            dBays
-          },
-          calculationDetails: {
-            bBaysCalc: `Math.max(Math.floor(${structure.length_ft} / 12) - 2, 0) = ${Math.max(Math.floor(structure.length_ft / 12) - 2, 0)}`,
-            housesValue: structure.houses || 1
-          }
-        });
-        return (
-          <GlazingWizard
-            projectId={structure.structure_id}
-            model={structure.model}
-            width={structure.width}
-            eaveHeight={structure.eave_height}
-            length={structure.length}
-            aBays={aBays}
-            bBays={bBays}
-            cBays={cBays}
-            dBays={dBays}
-          />
-        );
-      })()}
-
-
+      <div className="bg-gray-800 p-6 rounded-lg">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold">Roof Glazing & Bays</h3>
+        </div>
+        {glazingWizardProps ? (
+          <GlazingWizard {...glazingWizardProps} />
+        ) : (
+          <p>Loading structure details for glazing wizard...</p>
+        )}
+      </div>
     </div>
   );
 }

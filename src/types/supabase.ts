@@ -1292,6 +1292,10 @@ export type Database = {
       }
       structures: {
         Row: {
+          a_bays?: number | null
+          b_bays?: number | null
+          c_bays?: number | null
+          d_bays?: number | null
           covering_endwalls: string | null
           covering_gables: string | null
           covering_roof: string | null
@@ -1317,6 +1321,10 @@ export type Database = {
           zones: number
         }
         Insert: {
+          a_bays?: number | null
+          b_bays?: number | null
+          c_bays?: number | null
+          d_bays?: number | null
           covering_endwalls?: string | null
           covering_gables?: string | null
           covering_roof?: string | null

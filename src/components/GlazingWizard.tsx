@@ -1,12 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Card, CardHeader, CardContent } from './Card';
 import { supabase } from '../lib/supabase';
+import { Button } from './Button.tsx'; // Explicitly added .tsx extension
+import type { Database } from '../types/supabase'; // Added import for Supabase types
 
-// Default values for bay areas when no data is available
-const DEFAULT_A_BAY_AREA = 258;
-const DEFAULT_B_BAY_AREA = 229;
-const DEFAULT_C_BAY_AREA = 229;
-const DEFAULT_D_BAY_AREA = 258;
+// Define row type based on Supabase schema
+type GlazingRequirementRow = Database['public']['Tables']['glazing_requirements']['Row'];
 
 // Interface for section data
 interface GlazingSection {
@@ -21,77 +20,10 @@ interface GlazingSection {
 }
 
 // Debug info interface for detailed information display
-interface DebugInfo {
-  inputValues: {
-    projectId: string;
-    model: string;
-    normalizedModel: string;
-    width: number;
-    eaveHeight: number;
-    length: number;
-    aBays: number;
-    bBays: number;
-    cBays: number;
-    dBays: number;
-  };
-  calculations: {
-    numABays: number;
-    numBBays: number;
-    numCBays: number;
-    numDBays: number;
-    roofArea: number;
-    bayAreaBreakdown: {
-      aBaysContribution: number;
-      bBaysContribution: number;
-      cBaysContribution: number;
-      dBaysContribution: number;
-    };
-  };
-  bayAreas: {
-    areaA: number;
-    areaB: number;
-    areaC: number;
-    areaD: number;
-    sources: {
-      areaA: string;
-      areaB: string;
-      areaC: string;
-      areaD: string;
-    };
-  };
-}
-
-// Section labels for display
-const SECTION_LABELS: Record<string, string> = {
-  roof: 'Roof Glazing',
-  roof_vent: 'Roof Vent',
-  sidewall: 'Sidewall Covering',
-  sidewall_vent: 'Sidewall Vent',
-  endwall: 'Endwall Covering',
-  endwall_vent: 'Endwall Vent',
-  door: 'Door',
-  base: 'Base Material'
-};
-
-// Material options will be fetched from the database
-interface MaterialOption {
-  value: string;
-  label: string;
-}
-
-export default function GlazingWizard({
-  projectId,
-  model,
-  width,
-  eaveHeight,
-  length,
-  aBays,
-  bBays,
-  cBays,
-  dBays,
-}: {
+interface DebugInfoInputValues {
   projectId: string;
   model: string;
+  normalizedModel: string;
   width: number;
   eaveHeight: number;
   length: number;
@@ -99,629 +31,538 @@ export default function GlazingWizard({
   bBays: number;
   cBays: number;
   dBays: number;
-}) {
-  // Normalized model name for compatibility
-  const normalizedModel = model.replace(/\s+/g, '_').toLowerCase();
-  
-  // Model name mapping for compatibility with database entries
-  // This maps model codes like 'SL18' to their full names like 'Solar Light'
-  const MODEL_NAME_MAPPING: Record<string, string> = {
-    'sl18': 'Solar Light',
-    'SL18': 'Solar Light'
+  roofGlazingType: string;
+  initialRoofVentConfig: 'Non-Vented' | 'Single Vent' | 'Double Vent' | null;
+}
+
+interface DebugInfoCalculations {
+  numABays: number;
+  numBBays: number;
+  numCBays: number;
+  numDBays: number;
+  roofArea: number;
+  bayAreaBreakdown: {
+    aBaysContribution: number;
+    bBaysContribution: number;
+    cBaysContribution: number;
+    dBaysContribution: number;
   };
-  
-  // Get the mapped model name if it exists, otherwise use the original
-  const mappedModelName = MODEL_NAME_MAPPING[model] || model;
-  
-  // Component state
+}
+
+interface DebugInfo {
+  inputValues: DebugInfoInputValues;
+  calculations: DebugInfoCalculations;
+  bayAreas: {
+    areaA: number; areaASource: string;
+    areaB: number; areaBSource: string;
+    areaC: number; areaCSource: string;
+    areaD: number; areaDSource: string;
+  };
+  dbMessages?: string[];
+}
+
+interface BaySpecificDetail {
+  bayType: string;
+  count: number;
+  area: number;
+  source: string;
+  totalArea: number;
+}
+
+interface MaterialOption {
+  value: string;
+  label: string;
+}
+
+// Removed GlazingRequirementItemFromDB as it's not directly used after refactor, Supabase types will be inferred or defined as needed.
+
+export function GlazingWizard({
+  projectId,
+  model,
+  width,
+  eaveHeight,
+  length,
+  aBays: initialABays, // Renaming for clarity
+  bBays: initialBBays,
+  cBays: initialCBays,
+  dBays: initialDBays,
+  roofGlazingType,
+  initialRoofVentConfig,
+}: {
+  projectId: string;
+  model: string;
+  width: number;
+  eaveHeight: number;
+  length: number;
+  aBays: number | string;
+  bBays: number | string;
+  cBays: number | string;
+  dBays: number | string;
+  roofGlazingType: string;
+  initialRoofVentConfig: 'Non-Vented' | 'Single Vent' | 'Double Vent' | null;
+}) {
   const [sections, setSections] = useState<GlazingSection[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [showDebug, setShowDebug] = useState<boolean>(false);
-  const [showBayDetails, setShowBayDetails] = useState<boolean>(false);
-  const [roofMaterial, setRoofMaterial] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [showDebug, setShowDebug] = useState(true); // Keep state for toggling
+  const [showBayDetails, setShowBayDetails] = useState(true); // Keep state for toggling
+  const [roofMaterial, setRoofMaterial] = useState<string>(roofGlazingType);
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
   const [materialOptions, setMaterialOptions] = useState<MaterialOption[]>([]);
+  const [baySpecificDetails, setBaySpecificDetails] = useState<BaySpecificDetail[]>([]);
 
-  // Fetch material options on component mount
-  useEffect(() => {
-    fetchMaterialTypes();
-  }, []);
+  // Helper component for structured debug display
+  const DebugDisplaySection: React.FC<{ title: string; data: Record<string, any>; fields: Array<{key: string; label: string; unit?: string}> }> = ({ title, data, fields }) => {
+    if (!data) return null;
+    return (
+      <div className="mb-4">
+        <h4 className="font-semibold text-base text-emerald-400 mb-2">{title}</h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1 text-sm">
+          {fields.map(field => {
+            const value = data[field.key];
+            // Ensure complex objects like bayAreaBreakdown are not directly rendered if they are part of 'data'
+            if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+              // Optionally, you could expand this to display nested object properties
+              // For now, we skip direct rendering of objects to avoid [object Object]
+              if (field.key === 'bayAreaBreakdown' && value) {
+                return Object.entries(value).map(([key, val]) => (
+                  <React.Fragment key={`${field.key}-${key}`}>
+                    <span className="text-gray-400 pl-2">{`-> ${key}`}:</span>
+                    <span className="text-gray-100">
+                      {String(val)}
+                      {/* Add units if applicable for breakdown parts */}
+                    </span>
+                  </React.Fragment>
+                ));
+              }
+              return null;
+            }
+            return (
+              value !== undefined && value !== null ? (
+                <React.Fragment key={field.key}>
+                  <span className="text-gray-400">{field.label}:</span>
+                  <span className="text-gray-100">
+                    {String(value)}
+                    {field.unit && <span className="text-gray-500 ml-1">{field.unit}</span>}
+                  </span>
+                </React.Fragment>
+              ) : null
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
-  // Fetch glazing requirements when inputs change
-  useEffect(() => {
-    if (model && width && eaveHeight && length) {
-      fetchGlazingRequirements();
-    }
-  }, [projectId, model, width, eaveHeight, length, aBays, bBays, cBays, dBays, roofMaterial, normalizedModel]);
-  
-  // Function to fetch material types from the database
-  async function fetchMaterialTypes() {
-    try {
-      const { data, error } = await supabase
-        .from('glazing_requirements')
-        .select('material_type')
-        .order('material_type');
+  const inputFields = [
+    { key: 'projectId', label: 'Project ID' },
+    { key: 'model', label: 'Model' },
+    { key: 'normalizedModel', label: 'Normalized Model' },
+    { key: 'width', label: 'Width', unit: 'ft' },
+    { key: 'eaveHeight', label: 'Eave Height', unit: 'ft' },
+    { key: 'length', label: 'Length', unit: 'ft' },
+    { key: 'aBays', label: 'A Bays (Input)' },
+    { key: 'bBays', label: 'B Bays (Input)' },
+    { key: 'cBays', label: 'C Bays (Input)' },
+    { key: 'dBays', label: 'D Bays (Input)' },
+    { key: 'roofGlazingType', label: 'Roof Glazing Type' },
+    { key: 'initialRoofVentConfig', label: 'Roof Vent Config' },
+  ];
 
-      if (error) {
-        console.error('Error fetching material types:', error);
-        return;
-      }
+  const calculationFields = [
+    { key: 'numABays', label: 'A Bays' },
+    { key: 'numBBays', label: 'B Bays' },
+    { key: 'numCBays', label: 'C Bays' },
+    { key: 'numDBays', label: 'D Bays' },
+    { key: 'roofArea', label: 'Total Roof Area', unit: 'sq ft' },
+    { key: 'bayAreaBreakdown', label: 'Bay Area Breakdown' }, // Added for display
+  ];
 
-      if (data && data.length > 0) {
-        // Extract unique material types
-        const uniqueMaterials = Array.from(new Set(data.map(item => item.material_type)));
-        
-        // Create options array
-        const options = uniqueMaterials.map(material => ({
-          value: material,
-          label: material
-        }));
-        
-        setMaterialOptions(options);
-        
-        // Set default roof material if we have options and current is empty
-        if (options.length > 0 && !roofMaterial) {
-          setRoofMaterial(options[0].value);
-        }
-      }
-    } catch (err) {
-      console.error('Error in fetchMaterialTypes:', err);
-    }
-  }
+  const bayAreaFields = [
+      {key: 'areaA', label: 'Area A', unit: 'sq ft'},
+      {key: 'areaASource', label: 'Area A Source'},
+      {key: 'areaB', label: 'Area B', unit: 'sq ft'},
+      {key: 'areaBSource', label: 'Area B Source'},
+      {key: 'areaC', label: 'Area C', unit: 'sq ft'},
+      {key: 'areaCSource', label: 'Area C Source'},
+      {key: 'areaD', label: 'Area D', unit: 'sq ft'},
+      {key: 'areaDSource', label: 'Area D Source'},
+  ];
 
-  // Function to fetch glazing requirements from the database
-  async function fetchGlazingRequirements() {
+  const parseFloatWithFallback = (val: string | number | undefined | null, fallback = 0) => {
+    const num = parseFloat(String(val));
+    return isNaN(num) ? fallback : num;
+  };
+
+  const numABays = parseFloatWithFallback(initialABays);
+  const numBBays = parseFloatWithFallback(initialBBays);
+  const numCBays = parseFloatWithFallback(initialCBays);
+  const numDBays = parseFloatWithFallback(initialDBays);
+
+  const fetchGlazingRequirements = useCallback(async () => {
+    console.log('GW: fetchGlazingRequirements STARTED');
     setLoading(true);
+    setError(null);
 
-    // Log input values for debugging
-    console.log('GlazingWizard props:', { 
-      projectId, model, normalizedModel, width, eaveHeight, length,
-      aBays, bBays, cBays, dBays,
-      aBaysType: typeof aBays,
-      bBaysType: typeof bBays,
-      cBaysType: typeof cBays,
-      dBaysType: typeof dBays
-    });
+    // Determine the correct model names for display and DB query based on the 'model' prop
+    let displayedNormalizedModel = model; // Default for display
+    let dbQueryModelName = model;       // Default for DB queries
 
-    // CRITICAL FIX: Ensure we're working with proper numeric values
-    // We need to handle the case where Number(0) becomes 0, which is falsy
-    // So we can't use || 0 as it would replace 0 with 0 (but mask the fact that we got a real 0)
-    // Also ensure we're preserving the original values for display purposes
-    // For calculations, we'll use the numeric versions
-    const numABays = aBays === 0 ? 0 : (isNaN(Number(aBays)) ? 0 : Number(aBays));
-    const numBBays = bBays === 0 ? 0 : (isNaN(Number(bBays)) ? 0 : Number(bBays));
-    const numCBays = cBays === 0 ? 0 : (isNaN(Number(cBays)) ? 0 : Number(cBays));
-    const numDBays = dBays === 0 ? 0 : (isNaN(Number(dBays)) ? 0 : Number(dBays));
-    
-    // ADDITIONAL CHECK: Log the raw input values and their types
-    console.log('Raw bay values before conversion:', {
-      aBays, bBays, cBays, dBays,
-      types: {
-        aBaysType: typeof aBays,
-        bBaysType: typeof bBays,
-        cBaysType: typeof cBays,
-        dBaysType: typeof dBays
-      }
-    });
+    // Example: If model prop is "SL18" and width is 18
+    if (model === 'SL18') {
+      displayedNormalizedModel = `Solar Light ${width}`; // Display "Solar Light 18"
+      dbQueryModelName = 'Solar Light';                 // Query DB with "Solar Light"
+    } else if (model.includes(' -> ')) {
+      // Handle cases where model prop might be "SHORT_CODE -> Full Display Name"
+      const parts = model.split(' -> ');
+      dbQueryModelName = parts[0].trim(); // Part before ' -> ' for DB
+      displayedNormalizedModel = parts[1]?.trim() || parts[0].trim(); // Part after ' -> ' for display
+    }
+    // Add more normalization rules here if other model codes or formats exist
 
-    // Log after conversion to verify
-    console.log('Properly converted bay values using parseFloat(String()):', {
-      numABays, numBBays, numCBays, numDBays,
-      originalValues: { aBays, bBays, cBays, dBays }
-    });
+    const currentDebugInfo: DebugInfo = {
+      inputValues: {
+        projectId,
+        model,
+        normalizedModel: displayedNormalizedModel, // USE THE NEW DISPLAY NAME
+        width, // Use 'width' from props
+        eaveHeight, // Use 'eaveHeight' from props
+        length,
+        aBays: numABays,
+        bBays: numBBays,
+        cBays: numCBays,
+        dBays: numDBays,
+        roofGlazingType,
+        initialRoofVentConfig,
+      },
+      bayAreas: {
+        areaA: 0, areaASource: 'Default',
+        areaB: 0, areaBSource: 'Default',
+        areaC: 0, areaCSource: 'Default',
+        areaD: 0, areaDSource: 'Default',
+      },
+      calculations: {
+        numABays,
+        numBBays,
+        numCBays,
+        numDBays,
+        roofArea: 0,
+        bayAreaBreakdown: {
+          aBaysContribution: 0,
+          bBaysContribution: 0,
+          cBaysContribution: 0,
+          dBaysContribution: 0,
+        },
+      },
+      dbMessages: [],
+    };
 
     try {
-      // Fetch bay-specific glazing requirements
-      // Use the mapped model name to match database entries
-      const { data: bayData, error: bayError } = await supabase
-        .from('glazing_requirements')
-        .select('*')
-        .or(`model.eq.${normalizedModel},model.eq.${model},model.eq.${mappedModelName}`)
-        .or('section.eq.A Bay,section.eq.B Bay,section.eq.C Bay,section.eq.D Bay');
-      
-      // Log the model names being used for debugging
-      console.log('Model names used in query:', {
-        original: model,
-        normalized: normalizedModel,
-        mapped: mappedModelName
-      });
+      const normalizedModelValue = dbQueryModelName; // USE THE NEW DB QUERY NAME
 
-      console.log('Bay data query results:', { bayData, bayError });
-      
-      // Fetch general glazing requirements
-      // Try with the mapped model name first
-      let queryData;
-      let queryError;
-      
-      const { data: mappedData, error: mappedError } = await supabase
-        .from('glazing_requirements')
-        .select('*')
-        .eq('model', mappedModelName) // Use mapped model name
-        .eq('width', width)
-        .eq('eave_height', eaveHeight);
-      
-      // Store the results
-      queryData = mappedData;
-      queryError = mappedError;
-        
-      // If no data found with mapped name, try with original or normalized name
-      if (!queryData || queryData.length === 0) {
-        console.log(`No data found for mapped model name '${mappedModelName}', trying with original/normalized model names`);
-        
-        const { data: fallbackData, error: fallbackError } = await supabase
+      // Determine DB vent_type from prop
+      let dbVentType: string | undefined = undefined;
+      if (initialRoofVentConfig) {
+        if (initialRoofVentConfig === 'Non-Vented') dbVentType = 'non-vented';
+        else if (initialRoofVentConfig === 'Single Vent') dbVentType = 'single';
+        else if (initialRoofVentConfig === 'Double Vent') dbVentType = 'double';
+      }
+
+      // Helper to build and execute query for a given bay
+      const fetchBayData = async (bayChar: 'A' | 'B' | 'C' | 'D', bayLabel: string) => {
+        let query = supabase
           .from('glazing_requirements')
           .select('*')
-          .or(`model.eq.${normalizedModel},model.eq.${model}`)
+          .eq('model', normalizedModelValue)
           .eq('width', width)
-          .eq('eave_height', eaveHeight);
-          
-        if (fallbackData && fallbackData.length > 0) {
-          // Use the fallback data
-          queryData = fallbackData;
-          queryError = fallbackError;
-        }
-      }
-      
-      // Use the data from either the primary or fallback query
-      const data = queryData;
-      const error = queryError;
+          .eq('eave_height', eaveHeight)
+          .eq('section', 'roof') // Added section filter
+          .eq('material_type', roofMaterial) // Added material_type filter
+          .like('bay', `%${bayChar}%`);
 
-      if (error) {
-        console.error('Error fetching glazing requirements:', error);
-        setSections([]);
-        setLoading(false);
-        return;
-      }
+        if (dbVentType) {
+          query = query.eq('vent_type', dbVentType); // Conditionally add vent_type filter
+        }
 
-      // Initial values - Use defaults
-      let areaA = DEFAULT_A_BAY_AREA;
-      let areaB = DEFAULT_B_BAY_AREA;
-      let areaC = DEFAULT_C_BAY_AREA;
-      let areaD = DEFAULT_D_BAY_AREA;
-      
-      // Save the source of each area value for debugging
-      let areaASource = 'default';
-      let areaBSource = 'default';
-      let areaCSource = 'default';
-      let areaDSource = 'default';
-      
-      // Check if we have bay data from database
-      if (bayData && bayData.length > 0) {
-        console.log('Found bay data in database:', bayData);
-        
-        // Find the specific bay types
-        const aBayData = bayData.find((row: any) => row.section === 'A Bay');
-        const bBayData = bayData.find((row: any) => row.section === 'B Bay');
-        const cBayData = bayData.find((row: any) => row.section === 'C Bay');
-        const dBayData = bayData.find((row: any) => row.section === 'D Bay');
-    
-        // Use database values if available
-        if (aBayData && aBayData.area_sq_ft) {
-          areaA = aBayData.area_sq_ft;
-          areaASource = `database (id: ${aBayData.id})`;
+        const { data: bayResults, error } = await query;
+
+        const queryCriteriaMsg = `model=${normalizedModelValue}, w=${width}, eh=${eaveHeight}, sec=roof, mat=${roofMaterial}${dbVentType ? ', vt=' + dbVentType : ''}, bay LIKE %${bayChar}% (array)`;
+
+        if (error) {
+          console.error(`Supabase error fetching ${bayLabel} bay data:`, error);
+          currentDebugInfo.dbMessages?.push(`${bayLabel} Bay Query Error: ${error.message} | Criteria: ${queryCriteriaMsg}`);
+          throw new Error(`Failed to fetch ${bayLabel} bay data: ${error.message}`);
         }
-        if (bBayData && bBayData.area_sq_ft) {
-          areaB = bBayData.area_sq_ft;
-          areaBSource = `database (id: ${bBayData.id})`;
+        currentDebugInfo.dbMessages?.push(`${bayLabel} Bay Query: ${queryCriteriaMsg}`);
+
+        let bayDataRow: GlazingRequirementRow | null = null;
+        if (bayResults && bayResults.length > 0) {
+          bayDataRow = bayResults[0];
+          if (bayResults.length > 1) {
+            currentDebugInfo.dbMessages?.push(`Warning: Multiple ${bayLabel} bay records found for specific criteria (${bayResults.length} found). Using the first one.`);
+            console.warn(`GW: Multiple ${bayLabel} bay records found for ${queryCriteriaMsg} (${bayResults.length} found). Using first one.`);
+          }
+        } else {
+          currentDebugInfo.dbMessages?.push(`No ${bayLabel} bay data found for specific criteria.`);
         }
-        if (cBayData && cBayData.area_sq_ft) {
-          areaC = cBayData.area_sq_ft;
-          areaCSource = `database (id: ${cBayData.id})`;
+        return bayDataRow;
+      };
+
+      try {
+        const aData = await fetchBayData('A', 'A');
+        if (aData) {
+          const areaValue = parseFloatWithFallback(aData.area_sq_ft, 0);
+          currentDebugInfo.bayAreas.areaA = areaValue;
+          currentDebugInfo.bayAreas.areaASource = `DB (bay: ${aData.bay || 'A'}, material: ${aData.material_type || 'unknown'}, area: ${areaValue})`;
+          currentDebugInfo.dbMessages?.push(`Found A data: Area=${areaValue}, Source=${currentDebugInfo.bayAreas.areaASource}`);
+        } else {
+          currentDebugInfo.bayAreas.areaASource = 'Not found in DB (specific criteria)';
         }
-        if (dBayData && dBayData.area_sq_ft) {
-          areaD = dBayData.area_sq_ft;
-          areaDSource = `database (id: ${dBayData.id})`;
+
+        const bData = await fetchBayData('B', 'B');
+        if (bData) {
+          const areaValue = parseFloatWithFallback(bData.area_sq_ft, 0);
+          currentDebugInfo.bayAreas.areaB = areaValue;
+          currentDebugInfo.bayAreas.areaBSource = `DB (bay: ${bData.bay || 'B'}, material: ${bData.material_type || 'unknown'}, area: ${areaValue})`;
+          currentDebugInfo.dbMessages?.push(`Found B data: Area=${areaValue}, Source=${currentDebugInfo.bayAreas.areaBSource}`);
+        } else {
+          currentDebugInfo.bayAreas.areaBSource = 'Not found in DB (specific criteria)';
         }
-      }
-      
-      // DETAILED DEBUGGING: Log bay areas before calculation
-      console.log('Bay areas from database or defaults:', {
-        areaA, areaB, areaC, areaD,
-        sources: { areaASource, areaBSource, areaCSource, areaDSource }
-      });
-      
-      // DETAILED DEBUGGING: Log bay counts after conversion
-      console.log('Final bay counts used for calculation:', {
-        numABays, numBBays, numCBays, numDBays,
-        types: {
-          numABaysType: typeof numABays,
-          numBBaysType: typeof numBBays,
-          numCBaysType: typeof numCBays,
-          numDBaysType: typeof numDBays
+
+        const cData = await fetchBayData('C', 'C');
+        if (cData) {
+          const areaValue = parseFloatWithFallback(cData.area_sq_ft, 0);
+          currentDebugInfo.bayAreas.areaC = areaValue;
+          currentDebugInfo.bayAreas.areaCSource = `DB (bay: ${cData.bay || 'C'}, material: ${cData.material_type || 'unknown'}, area: ${areaValue})`;
+          currentDebugInfo.dbMessages?.push(`Found C data: Area=${areaValue}, Source=${currentDebugInfo.bayAreas.areaCSource}`);
+        } else {
+          currentDebugInfo.bayAreas.areaCSource = 'Not found in DB (specific criteria)';
         }
-      });
-      
-      // Calculate the roof area based on the bay counts and areas
-      const aBaysContribution = numABays * areaA;
-      const bBaysContribution = numBBays * areaB;
-      const cBaysContribution = numCBays * areaC;
-      const dBaysContribution = numDBays * areaD;
-      
-      // DETAILED DEBUGGING: Log individual contributions
-      console.log('Individual bay contributions to roof area:', {
-        aBaysContribution: `${numABays} × ${areaA} = ${aBaysContribution}`,
-        bBaysContribution: `${numBBays} × ${areaB} = ${bBaysContribution}`,
-        cBaysContribution: `${numCBays} × ${areaC} = ${cBaysContribution}`,
-        dBaysContribution: `${numDBays} × ${areaD} = ${dBaysContribution}`
-      });
-      
-      const calculatedRoofArea = aBaysContribution + bBaysContribution + cBaysContribution + dBaysContribution;
-      
-      // DETAILED DEBUGGING: Log final calculated roof area
-      console.log('Final calculated roof area:', {
-        calculatedRoofArea,
-        formula: `${aBaysContribution} + ${bBaysContribution} + ${cBaysContribution} + ${dBaysContribution} = ${calculatedRoofArea}`
-      });
-      
-      // Set debug info for displaying in the UI
-      // CRITICAL: Make sure we're displaying the exact values that were passed as props
-      console.log('Setting debug info with bay values:', { aBays, bBays, cBays, dBays });
-      
-      setDebugInfo({
-        inputValues: {
-          projectId,
-          model,
-          normalizedModel,
-          width,
-          eaveHeight,
-          length,
-          // Force these to be the exact values passed as props
-          aBays: Number(aBays), 
-          bBays: Number(bBays),
-          cBays: Number(cBays),
-          dBays: Number(dBays)
-        },
-        calculations: {
+
+        const dData = await fetchBayData('D', 'D');
+        if (dData) {
+          const areaValue = parseFloatWithFallback(dData.area_sq_ft, 0);
+          currentDebugInfo.bayAreas.areaD = areaValue;
+          currentDebugInfo.bayAreas.areaDSource = `DB (bay: ${dData.bay || 'D'}, material: ${dData.material_type || 'unknown'}, area: ${areaValue})`;
+          currentDebugInfo.dbMessages?.push(`Found D data: Area=${areaValue}, Source=${currentDebugInfo.bayAreas.areaDSource}`);
+        } else {
+          currentDebugInfo.bayAreas.areaDSource = 'Not found in DB (specific criteria)';
+        }
+
+        // Calculations
+        const aBaysContribution = numABays * currentDebugInfo.bayAreas.areaA;
+        const bBaysContribution = numBBays * currentDebugInfo.bayAreas.areaB;
+        const cBaysContribution = numCBays * currentDebugInfo.bayAreas.areaC;
+        const dBaysContribution = numDBays * currentDebugInfo.bayAreas.areaD;
+        const totalRoofArea = aBaysContribution + bBaysContribution + cBaysContribution + dBaysContribution;
+
+        currentDebugInfo.calculations = {
           numABays,
           numBBays,
           numCBays,
           numDBays,
-          roofArea: calculatedRoofArea,
+          roofArea: totalRoofArea,
           bayAreaBreakdown: {
             aBaysContribution,
             bBaysContribution,
             cBaysContribution,
-            dBaysContribution
-          }
-        },
-        bayAreas: {
-          areaA,
-          areaB,
-          areaC,
-          areaD,
-          sources: {
-            areaA: areaASource,
-            areaB: areaBSource,
-            areaC: areaCSource,
-            areaD: areaDSource
-          }
-        }
-      });
-      
-      // Process glazing data from the API and create properly sorted sections
-      if (data && data.length > 0) {
-        console.log('Found glazing requirements:', data);
-        
-        const processedSections = data.map((row: any) => ({
-          section: row.section || 'unknown',
-          material: row.material_type || roofMaterial,
-          area: row.section === 'roof' ? calculatedRoofArea : row.area_sq_ft || 0,
-          unit: 'sq ft',
-          price: row.material_cost || 0,
-          total: row.section === 'roof' 
-            ? calculatedRoofArea * (row.material_cost || 0) 
-            : (row.area_sq_ft || 0) * (row.material_cost || 0),
-          editable: row.section === 'roof'
-        }));
-        
-        // Add the roof section if it doesn't exist
-        if (!processedSections.some(s => s.section === 'roof')) {
-          processedSections.push({
-            section: 'roof',
-            material: roofMaterial,
-            area: calculatedRoofArea,
-            unit: 'sq ft',
-            price: 0,
-            total: 0,
-            editable: true
-          });
-        }
-        
-        // Sort sections by predefined order
-        const sortedSections = processedSections.sort((a, b) => {
-          const sectionOrder = Object.keys(SECTION_LABELS);
-          return sectionOrder.indexOf(a.section) - sectionOrder.indexOf(b.section);
-        });
-        
-        setSections(sortedSections);
-      } else {
-        // Create just a roof section with calculated area if no other data
-        setSections([
-          {
-            section: 'roof',
-            material: roofMaterial,
-            area: calculatedRoofArea,
-            unit: 'sq ft',
-            price: 0,
-            total: 0,
-            editable: true
-          }
+            dBaysContribution,
+          },
+        };
+
+        setBaySpecificDetails([
+          { bayType: 'A Bay', count: numABays, area: currentDebugInfo.bayAreas.areaA, source: currentDebugInfo.bayAreas.areaASource, totalArea: aBaysContribution },
+          { bayType: 'B Bay', count: numBBays, area: currentDebugInfo.bayAreas.areaB, source: currentDebugInfo.bayAreas.areaBSource, totalArea: bBaysContribution },
+          { bayType: 'C Bay', count: numCBays, area: currentDebugInfo.bayAreas.areaC, source: currentDebugInfo.bayAreas.areaCSource, totalArea: cBaysContribution },
+          { bayType: 'D Bay', count: numDBays, area: currentDebugInfo.bayAreas.areaD, source: currentDebugInfo.bayAreas.areaDSource, totalArea: dBaysContribution },
         ]);
+
+        const initialGlazingSections: GlazingSection[] = [
+          {
+            section: 'Roof Glazing',
+            material: roofMaterial, // Comes from prop roofGlazingType, managed by state roofMaterial
+            area: totalRoofArea,
+            unit: 'sq ft',
+            price: 0,
+            total: 0,
+            editable: true,
+          },
+        ];
+        setSections(initialGlazingSections);
+
+        // Fetch Material Options from distinct material_type in glazing_requirements
+        const { data: materialData, error: materialError } = await supabase
+          .from('glazing_requirements')
+          .select('material_type', { count: 'exact', head: false }) // Select distinct material_type
+          .neq('material_type', ''); // Ensure material_type is not empty
+
+        if (materialError) throw new Error(`Failed to fetch material options: ${materialError.message}`);
+        currentDebugInfo.dbMessages?.push('Fetched material types from glazing_requirements.');
+        
+        if (materialData && Array.isArray(materialData)) {
+          // Filter out null or undefined material_types and create unique options
+          const uniqueMaterialTypes = [
+            ...new Set(materialData
+              .map((item: Pick<GlazingRequirementRow, 'material_type'>) => item.material_type)
+              .filter((material): material is string => typeof material === 'string' && material.trim() !== '')),
+          ];
+          setMaterialOptions(uniqueMaterialTypes.map((m) => ({ value: m, label: m })));
+          currentDebugInfo.dbMessages?.push(`Material options populated: ${uniqueMaterialTypes.join(', ')}`);
+        } else {
+          currentDebugInfo.dbMessages?.push('No material data found or data is not an array.');
+          setMaterialOptions([]); // Set to empty array if no data
+        }
+
+        setDebugInfo(currentDebugInfo);
+
+      } catch (innerError: any) { 
+        console.error("GW: Error during specific bay data fetching, calculations, or material options:", innerError);
+        currentDebugInfo.dbMessages?.push(`Error during data processing sequence: ${innerError.message}`);
+        throw innerError; 
       }
-      
-      setLoading(false);
-    } catch (err) {
-      console.error('Error in fetchGlazingRequirements:', err);
-      setSections([]);
+
+    } catch (error: any) { 
+      // Ensure the full error object is logged if the error happens outside specific bay fetches
+      console.error("GW: Overall error in fetchGlazingRequirements:", error, "Message:", error?.message);
+      setError(`Failed to load glazing information: ${error?.message || 'Unknown error'}`);
+    } finally {
       setLoading(false);
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [ projectId, model, width, eaveHeight, length, numABays, numBBays, numCBays, numDBays, roofGlazingType, initialRoofVentConfig, supabase, roofMaterial ]);
+    // Removed many state setters from dependency array as they are stable or would cause loops.
+    // supabase client is stable. numXBay values are calculated from props and stable per render cycle where props don't change.
 
-  // Handler for changing material of a section
-  const handleMaterialChange = (idx: number, newMaterial: string) => {
-    const updatedSections = [...sections];
-    updatedSections[idx].material = newMaterial;
-    setSections(updatedSections);
-  };
+    useEffect(() => {
+      console.log('GW: useEffect for fetchGlazingRequirements RUNNING');
+      fetchGlazingRequirements();
+    }, [fetchGlazingRequirements]);
 
-  // Handler for roof material change
-  const handleRoofMaterialChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    setRoofMaterial(e.target.value);
-  };
+    const handleMaterialChange = (idx: number, newMaterial: string) => {
+      const updatedSections = sections.map((s, i) => i === idx ? { ...s, material: newMaterial } : s);
+      setSections(updatedSections);
+    };
 
-  if (loading) {
+    const handleRoofMaterialChange = (newMaterial: string) => {
+      setRoofMaterial(newMaterial);
+      // This will also trigger a re-fetch if roofMaterial is in fetchGlazingRequirements deps
+      // or update sections directly if preferred
+      const updatedSections = sections.map(s => s.section === 'Roof Glazing' ? { ...s, material: newMaterial } : s);
+      setSections(updatedSections);
+    };
+
+    if (loading) {
+      console.log('GW: Rendering loading state');
+      return <div className="p-4 text-gray-200">Loading glazing information...</div>;
+    }
+    
+    if (error) {
+      return <div className="p-4 text-red-500">Error: {error}</div>;
+    }
+
+    console.log('GW: Rendering main component content (loading is false)');
+
     return (
-      <Card className="mt-6">
-        <CardHeader>Glazing Wizard</CardHeader>
-        <CardContent>
-          <p className="text-gray-400">Loading glazing requirements...</p>
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        <div className="flex justify-end space-x-2">
+          <Button variant="outline" onClick={() => setShowBayDetails(!showBayDetails)}>{showBayDetails ? 'Hide' : 'Show'} Bay Details</Button>
+          <Button variant="outline" onClick={() => setShowDebug(!showDebug)}>{showDebug ? 'Hide' : 'Show'} Debug</Button>
+        </div>
+
+        {showDebug && debugInfo && (
+          <Card>
+            <CardHeader>Debug Information</CardHeader>
+            <CardContent className="space-y-6 text-xs">
+              <p className="text-sm text-gray-400 -mt-3 mb-1">Detailed debugging information for glazing calculations.</p>
+              {debugInfo.inputValues && <DebugDisplaySection title="Input Values" data={debugInfo.inputValues} fields={inputFields} />}
+              {debugInfo.calculations && <DebugDisplaySection title="Calculations" data={debugInfo.calculations} fields={calculationFields} />}
+              {debugInfo.bayAreas && <DebugDisplaySection title="Bay Area Details (from DB/Defaults)" data={debugInfo.bayAreas} fields={bayAreaFields} />}
+              {debugInfo.dbMessages && debugInfo.dbMessages.length > 0 && (
+                <div>
+                  <h4 className="font-semibold text-base text-emerald-400 mb-2 mt-1">Database Log</h4>
+                  <ul className="list-disc list-inside pl-2 text-gray-300">
+                    {debugInfo.dbMessages.map((msg, idx) => <li key={idx}>{msg}</li>)}
+                  </ul>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {showBayDetails && baySpecificDetails.length > 0 && (
+          <Card>
+            <CardHeader>Bay-Specific Details</CardHeader>
+            <CardContent>
+              <table className="min-w-full divide-y divide-gray-700">
+                <thead>
+                  <tr>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Bay Type</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Count</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Area (sq ft)</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Source</th>
+                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Total Area</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800">
+                  {baySpecificDetails.map((detail) => (
+                    <tr key={detail.bayType}>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.bayType}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.count}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.area.toFixed(2)}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200 max-w-xs truncate" title={detail.source}>{detail.source}</td>
+                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.totalArea.toFixed(2)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </CardContent>
+          </Card>
+        )}
+
+        <Card>
+          <CardHeader>Glazing Sections</CardHeader>
+          <CardContent>
+            <table className="min-w-full divide-y divide-gray-700">
+              <thead>
+                <tr>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Section</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Material</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Area (sq ft)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-800">
+                {sections.map((section, idx) => (
+                  <tr key={idx}>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{section.section}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm">
+                      {section.section === 'Roof Glazing' ? (
+                        <select 
+                          value={roofMaterial} 
+                          onChange={(e) => handleRoofMaterialChange(e.target.value)}
+                          className="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block w-full p-1.5"
+                        >
+                          {materialOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        </select>
+                      ) : (
+                        <select 
+                          value={section.material} 
+                          onChange={(e) => handleMaterialChange(idx, e.target.value)}
+                          className="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block w-full p-1.5"
+                          disabled={!section.editable}
+                        >
+                          {materialOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                        </select>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{section.area.toFixed(2)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
-  return (
-    <Card className="mt-6">
-      <CardHeader className="flex justify-between items-center">
-        <span>Glazing Wizard</span>
-        <button 
-          onClick={() => setShowDebug(!showDebug)}
-          className="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-xs rounded"
-        >
-          {showDebug ? "Hide Debug" : "Show Debug"}
-        </button>
-      </CardHeader>
-      <CardContent>
-        {/* Debug Panel */}
-        {showDebug && debugInfo && (
-          <div className="mb-6 p-4 bg-gray-750 rounded-lg border border-gray-600 overflow-auto text-xs">
-            <h3 className="text-emerald-400 font-semibold mb-2">Debug Information</h3>
-            
-            <div className="mb-2 flex justify-between items-center">
-              <span className="text-gray-300 text-xs italic">Detailed debugging information for glazing calculations</span>
-              <button
-                onClick={() => setShowBayDetails(!showBayDetails)}
-                className="px-2 py-1 bg-gray-700 hover:bg-gray-600 text-xs rounded"
-              >
-                {showBayDetails ? "Hide Bay Details" : "Show Bay Details"}
-              </button>
-            </div>
-            
-            <div className="grid grid-cols-2 gap-4">
-              <div className="bg-gray-800 p-2 rounded">
-                <h4 className="text-emerald-400 font-medium mb-1">Input Values:</h4>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="text-gray-400">Project ID:</div>
-                  <div className="text-white">{debugInfo.inputValues.projectId}</div>
-                  
-                  <div className="text-gray-400">Model:</div>
-                  <div className="text-white">
-                    {debugInfo.inputValues.model} 
-                    {debugInfo.inputValues.normalizedModel !== debugInfo.inputValues.model && 
-                      ` → ${debugInfo.inputValues.normalizedModel}`}
-                  </div>
-                  
-                  <div className="text-gray-400">Width:</div>
-                  <div className="text-white">{debugInfo.inputValues.width} ft</div>
-                  
-                  <div className="text-gray-400">Eave Height:</div>
-                  <div className="text-white">{debugInfo.inputValues.eaveHeight} ft</div>
-                  
-                  <div className="text-gray-400">Length:</div>
-                  <div className="text-white">{debugInfo.inputValues.length} ft</div>
-                  
-                  <div className="text-gray-400">A Bays:</div>
-                  <div className="text-white">
-                    {debugInfo.inputValues.aBays} 
-                    <span className="text-gray-500 ml-1">({typeof debugInfo.inputValues.aBays})</span>
-                  </div>
-                  
-                  <div className="text-gray-400">B Bays:</div>
-                  <div className="text-white">
-                    {debugInfo.inputValues.bBays}
-                    <span className="text-gray-500 ml-1">({typeof debugInfo.inputValues.bBays})</span>
-                  </div>
-                  
-                  <div className="text-gray-400">C Bays:</div>
-                  <div className="text-white">
-                    {debugInfo.inputValues.cBays}
-                    <span className="text-gray-500 ml-1">({typeof debugInfo.inputValues.cBays})</span>
-                  </div>
-                  
-                  <div className="text-gray-400">D Bays:</div>
-                  <div className="text-white">
-                    {debugInfo.inputValues.dBays}
-                    <span className="text-gray-500 ml-1">({typeof debugInfo.inputValues.dBays})</span>
-                  </div>
-                </div>
-              </div>
-              
-              <div className="bg-gray-800 p-2 rounded">
-                <h4 className="text-emerald-400 font-medium mb-1">Calculations:</h4>
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="text-gray-400">A Bays:</div>
-                  <div className="text-white">{debugInfo.calculations.numABays}</div>
-                  
-                  <div className="text-gray-400">B Bays:</div>
-                  <div className="text-white">{debugInfo.calculations.numBBays}</div>
-                  
-                  <div className="text-gray-400">C Bays:</div>
-                  <div className="text-white">{debugInfo.calculations.numCBays}</div>
-                  
-                  <div className="text-gray-400">D Bays:</div>
-                  <div className="text-white">{debugInfo.calculations.numDBays}</div>
-                  
-                  <div className="text-gray-400">Total Roof Area:</div>
-                  <div className="text-white font-semibold text-emerald-300">
-                    {debugInfo.calculations.roofArea.toFixed(2)} sq ft
-                  </div>
-                </div>
-              </div>
-            </div>
-            
-            {showBayDetails && (
-              <div className="mt-4">
-                <h4 className="text-emerald-400 font-medium mb-1">Bay-Specific Details:</h4>
-                <div className="bg-gray-800 p-2 rounded mb-3">
-                  <table className="w-full border-collapse text-xs">
-                    <thead>
-                      <tr className="text-left border-b border-gray-700">
-                        <th className="pb-1 text-gray-300">Bay Type</th>
-                        <th className="pb-1 text-gray-300">Count</th>
-                        <th className="pb-1 text-gray-300">Area (sq ft)</th>
-                        <th className="pb-1 text-gray-300">Source</th>
-                        <th className="pb-1 text-gray-300">Total Area</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-b border-gray-700">
-                        <td className="py-1 text-white">A Bay</td>
-                        <td className="py-1 text-white">{debugInfo.calculations.numABays}</td>
-                        <td className="py-1 text-white">{debugInfo.bayAreas.areaA}</td>
-                        <td className="py-1 text-gray-400 italic">{debugInfo.bayAreas.sources.areaA}</td>
-                        <td className="py-1 text-white">{debugInfo.calculations.bayAreaBreakdown.aBaysContribution.toFixed(2)}</td>
-                      </tr>
-                      <tr className="border-b border-gray-700">
-                        <td className="py-1 text-white">B Bay</td>
-                        <td className="py-1 text-white">{debugInfo.calculations.numBBays}</td>
-                        <td className="py-1 text-white">{debugInfo.bayAreas.areaB}</td>
-                        <td className="py-1 text-gray-400 italic">{debugInfo.bayAreas.sources.areaB}</td>
-                        <td className="py-1 text-white">{debugInfo.calculations.bayAreaBreakdown.bBaysContribution.toFixed(2)}</td>
-                      </tr>
-                      <tr className="border-b border-gray-700">
-                        <td className="py-1 text-white">C Bay</td>
-                        <td className="py-1 text-white">{debugInfo.calculations.numCBays}</td>
-                        <td className="py-1 text-white">{debugInfo.bayAreas.areaC}</td>
-                        <td className="py-1 text-gray-400 italic">{debugInfo.bayAreas.sources.areaC}</td>
-                        <td className="py-1 text-white">{debugInfo.calculations.bayAreaBreakdown.cBaysContribution.toFixed(2)}</td>
-                      </tr>
-                      <tr>
-                        <td className="py-1 text-white">D Bay</td>
-                        <td className="py-1 text-white">{debugInfo.calculations.numDBays}</td>
-                        <td className="py-1 text-white">{debugInfo.bayAreas.areaD}</td>
-                        <td className="py-1 text-gray-400 italic">{debugInfo.bayAreas.sources.areaD}</td>
-                        <td className="py-1 text-white">{debugInfo.calculations.bayAreaBreakdown.dBaysContribution.toFixed(2)}</td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                
-                <div className="text-xs bg-gray-800 p-2 rounded">
-                  <h4 className="text-emerald-400 font-medium mb-1">Calculation Formula:</h4>
-                  <div className="my-2 bg-gray-900 p-2 rounded font-mono">
-                    roofArea = 
-                    <span className="text-blue-400"> (numABays * areaA) </span> + 
-                    <span className="text-green-400"> (numBBays * areaB) </span> + 
-                    <span className="text-yellow-400"> (numCBays * areaC) </span> + 
-                    <span className="text-purple-400"> (numDBays * areaD) </span>
-                  </div>
-                  <div className="my-2 bg-gray-900 p-2 rounded font-mono">
-                    roofArea = 
-                    <span className="text-blue-400"> ({debugInfo.calculations.numABays} * {debugInfo.bayAreas.areaA}) </span> + 
-                    <span className="text-green-400"> ({debugInfo.calculations.numBBays} * {debugInfo.bayAreas.areaB}) </span> + 
-                    <span className="text-yellow-400"> ({debugInfo.calculations.numCBays} * {debugInfo.bayAreas.areaC}) </span> + 
-                    <span className="text-purple-400"> ({debugInfo.calculations.numDBays} * {debugInfo.bayAreas.areaD}) </span>
-                  </div>
-                  <div className="my-2 bg-gray-900 p-2 rounded font-mono">
-                    roofArea = 
-                    <span className="text-blue-400"> {debugInfo.calculations.bayAreaBreakdown.aBaysContribution.toFixed(2)} </span> + 
-                    <span className="text-green-400"> {debugInfo.calculations.bayAreaBreakdown.bBaysContribution.toFixed(2)} </span> + 
-                    <span className="text-yellow-400"> {debugInfo.calculations.bayAreaBreakdown.cBaysContribution.toFixed(2)} </span> + 
-                    <span className="text-purple-400"> {debugInfo.calculations.bayAreaBreakdown.dBaysContribution.toFixed(2)} </span>
-                  </div>
-                  <div className="my-2 bg-gray-900 p-2 rounded font-mono">
-                    roofArea = <span className="text-emerald-300 font-semibold">{debugInfo.calculations.roofArea.toFixed(2)}</span> sq ft
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-        
-        {/* Sections Table */}
-        <table className="min-w-full text-white text-sm">
-          <thead>
-            <tr>
-              <th className="text-left">Section</th>
-              <th className="text-left">Material</th>
-              <th className="text-right">Area</th>
-              <th className="text-right">Unit</th>
-              <th className="text-right">Price</th>
-              <th className="text-right">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sections.map((section, idx) => (
-              <tr key={idx} className={idx % 2 === 0 ? 'bg-gray-800' : 'bg-gray-750'}>
-                <td className="py-2 pl-2">
-                  {SECTION_LABELS[section.section] || section.section}
-                </td>
-                <td className="py-2">
-                  {section.section === 'roof' ? (
-                    <select
-                      value={roofMaterial}
-                      onChange={handleRoofMaterialChange}
-                      className="bg-gray-700 text-white border border-gray-600 rounded p-1 text-sm"
-                    >
-                      {materialOptions.length > 0 ? (
-                        materialOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))
-                      ) : (
-                        <option value="">Loading materials...</option>
-                      )}
-                    </select>
-                  ) : section.editable ? (
-                    <select
-                      value={section.material}
-                      onChange={(e) => handleMaterialChange(idx, e.target.value)}
-                      className="bg-gray-700 text-white border border-gray-600 rounded p-1 text-sm"
-                    >
-                      {materialOptions.length > 0 ? (
-                        materialOptions.map((option) => (
-                          <option key={option.value} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))
-                      ) : (
-                        <option value="">Loading materials...</option>
-                      )}
-                    </select>
-                  ) : (
-                    section.material
-                  )}
-                </td>
-                <td className="py-2 text-right">{section.area.toFixed(2)}</td>
-                <td className="py-2 text-right">{section.unit}</td>
-                <td className="py-2 text-right">${section.price.toFixed(2)}</td>
-                <td className="py-2 text-right pr-2">${section.total.toFixed(2)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </CardContent>
-    </Card>
-  );
-}
+  export default GlazingWizard;
