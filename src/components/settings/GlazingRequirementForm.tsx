@@ -36,7 +36,7 @@ export default function GlazingRequirementForm({
     model: '',
     width: 0,
     eave_height: 0,
-    length: 0,
+
     section: '',
     material_type: 'PC8',
     // Optional fields with defaults
@@ -44,7 +44,7 @@ export default function GlazingRequirementForm({
     vent_type: null,
     area_sq_ft: null,
     linear_ft: null,
-    panel_count: null,
+    panel_width: null,
     panel_length: null,
     notes: null,
   });
@@ -59,14 +59,14 @@ export default function GlazingRequirementForm({
         model: item.model,
         width: item.width,
         eave_height: item.eave_height,
-        length: item.length,
+
         section: item.section,
         bay: item.bay,
         vent_type: item.vent_type,
         material_type: item.material_type,
         area_sq_ft: item.area_sq_ft,
         linear_ft: item.linear_ft,
-        panel_count: item.panel_count,
+        panel_width: item.panel_width,
         panel_length: item.panel_length,
         notes: item.notes,
       });
@@ -330,8 +330,8 @@ export default function GlazingRequirementForm({
                 </label>
                 <input
                   type="number"
-                  name="panel_count"
-                  value={formData.panel_count || ''}
+                  name="panel_width"
+                  value={formData.panel_width || ''}
                   onChange={handleChange}
                   min="0"
                   step="1"

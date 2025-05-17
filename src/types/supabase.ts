@@ -251,14 +251,13 @@ export type Database = {
           model: string;
           width: number;
           eave_height: number;
-          length: number;
           section: string;
           bay: string | null;
           vent_type: string | null;
           material_type: string;
           area_sq_ft: number | null;
           linear_ft: number | null;
-          panel_count: number | null;
+          panel_width: number | null;
           panel_length: number | null;
           notes: string | null;
         };
@@ -267,14 +266,13 @@ export type Database = {
           model: string;
           width: number;
           eave_height: number;
-          length: number;
           section: string;
           bay?: string | null;
           vent_type?: string | null;
           material_type: string;
           area_sq_ft?: number | null;
           linear_ft?: number | null;
-          panel_count?: number | null;
+          panel_width?: number | null;
           panel_length?: number | null;
           notes?: string | null;
         };
@@ -283,14 +281,14 @@ export type Database = {
           model?: string;
           width?: number;
           eave_height?: number;
-          length?: number;
+
           section?: string;
           bay?: string | null;
           vent_type?: string | null;
           material_type?: string;
           area_sq_ft?: number | null;
           linear_ft?: number | null;
-          panel_count?: number | null;
+          panel_width?: number | null;
           panel_length?: number | null;
           notes?: string | null;
         };
