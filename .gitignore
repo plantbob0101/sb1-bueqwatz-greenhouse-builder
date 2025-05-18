@@ -19,6 +19,12 @@ dist-ssr
 .DS_Store
 *.suo
 *.ntvs*
+
+# Windsync - track the directory but not its contents
+.windsync/*
+!.windsync/restore_memories.sh
+!.windsync/globalStorage/
+!.windsync/workspaceStorage/
 *.njsproj
 *.sln
 *.sw?
