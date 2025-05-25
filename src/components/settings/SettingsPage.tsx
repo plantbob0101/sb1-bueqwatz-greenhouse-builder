@@ -9,10 +9,11 @@ import VentDrivesTab from './VentDrivesTab';
 import RollupDropDrivesTab from './RollupDropDrivesTab';
 import CurtainFabricsTab from './CurtainFabricsTab';
 import GlazingRequirementsTab from './GlazingRequirementsTab';
+import GlazingPanelRequirementsTab from './GlazingPanelRequirementsTab.tsx';
 
 type Structure = Database['public']['Tables']['structures']['Row'];
 
-type Tab = 'structures' | 'vent-drives' | 'rollup-drop-drives' | 'pc8-glazing' | 'poly-glazing' | 'curtain-fabrics' | 'glazing-requirements' | 'cooling' | 'heating';
+type Tab = 'structures' | 'vent-drives' | 'rollup-drop-drives' | 'pc8-glazing' | 'poly-glazing' | 'curtain-fabrics' | 'glazing-requirements' | 'glazing-panel-requirements' | 'cooling' | 'heating';
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'structures', label: 'Structures', icon: <Building2 className="w-4 h-4" /> },
@@ -22,6 +23,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'poly-glazing', label: 'Poly Glazing', icon: <Building2 className="w-4 h-4" /> },
   { id: 'curtain-fabrics', label: 'Curtain Fabrics', icon: <Building2 className="w-4 h-4" /> },
   { id: 'glazing-requirements', label: 'Glazing Requirements', icon: <Table className="w-4 h-4" /> },
+  { id: 'glazing-panel-requirements', label: 'Glazing Panel Requirements', icon: <Table className="w-4 h-4" /> },
 ];
 
 export default function SettingsPage() {
@@ -216,6 +218,8 @@ export default function SettingsPage() {
         <CurtainFabricsTab />
       ) : currentTab === 'glazing-requirements' ? (
         <GlazingRequirementsTab />
+      ) : currentTab === 'glazing-panel-requirements' ? (
+        <GlazingPanelRequirementsTab />
       ) : (
         <div className="text-center py-8 text-gray-400">
           Content for {currentTab} will be added soon
