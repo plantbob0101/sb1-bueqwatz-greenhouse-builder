@@ -245,55 +245,6 @@ export type Database = {
           },
         ]
       }
-      glazing_requirements: {
-        Row: {
-          id: number;
-          model: string;
-          width: number;
-          eave_height: number;
-          section: string;
-          bay: string | null;
-          vent_type: string | null;
-          material_type: string;
-          area_sq_ft: number | null;
-          linear_ft: number | null;
-          panel_width: number | null;
-          panel_length: number | null;
-          notes: string | null;
-        };
-        Insert: {
-          id?: number;
-          model: string;
-          width: number;
-          eave_height: number;
-          section: string;
-          bay?: string | null;
-          vent_type?: string | null;
-          material_type: string;
-          area_sq_ft?: number | null;
-          linear_ft?: number | null;
-          panel_width?: number | null;
-          panel_length?: number | null;
-          notes?: string | null;
-        };
-        Update: {
-          id?: number;
-          model?: string;
-          width?: number;
-          eave_height?: number;
-
-          section?: string;
-          bay?: string | null;
-          vent_type?: string | null;
-          material_type?: string;
-          area_sq_ft?: number | null;
-          linear_ft?: number | null;
-          panel_width?: number | null;
-          panel_length?: number | null;
-          notes?: string | null;
-        };
-        Relationships: [];
-      };
       cooling_zones: {
         Row: {
           created_at: string | null
@@ -530,6 +481,7 @@ export type Database = {
           price_10000_50000: number
           price_5000_10000: number
           price_50000_plus: number
+          price_per_sqft: number | null
           product: string | null
           type: string
           updated_at: string | null
@@ -545,6 +497,7 @@ export type Database = {
           price_10000_50000: number
           price_5000_10000: number
           price_50000_plus: number
+          price_per_sqft?: number | null
           product?: string | null
           type: string
           updated_at?: string | null
@@ -560,6 +513,7 @@ export type Database = {
           price_10000_50000?: number
           price_5000_10000?: number
           price_50000_plus?: number
+          price_per_sqft?: number | null
           product?: string | null
           type?: string
           updated_at?: string | null
@@ -577,6 +531,7 @@ export type Database = {
           price_2000lbs_plus: number
           price_400lbs_less: number
           price_401_2000lbs: number
+          price_per_sqft: number | null
           type: string
           updated_at: string | null
           widths_available: string[]
@@ -590,6 +545,7 @@ export type Database = {
           price_2000lbs_plus: number
           price_400lbs_less: number
           price_401_2000lbs: number
+          price_per_sqft?: number | null
           type: string
           updated_at?: string | null
           widths_available: string[]
@@ -603,6 +559,7 @@ export type Database = {
           price_2000lbs_plus?: number
           price_400lbs_less?: number
           price_401_2000lbs?: number
+          price_per_sqft?: number | null
           type?: string
           updated_at?: string | null
           widths_available?: string[]
@@ -703,6 +660,48 @@ export type Database = {
           },
         ]
       }
+      glazing_panel_requirements: {
+        Row: {
+          bay: string | null
+          created_at: string | null
+          eave_height: number
+          id: number
+          material_type: string
+          model: string
+          panel_length: string
+          section: string
+          updated_at: string | null
+          vent_type: string | null
+          width: number
+        }
+        Insert: {
+          bay?: string | null
+          created_at?: string | null
+          eave_height: number
+          id?: number
+          material_type: string
+          model: string
+          panel_length: string
+          section: string
+          updated_at?: string | null
+          vent_type?: string | null
+          width: number
+        }
+        Update: {
+          bay?: string | null
+          created_at?: string | null
+          eave_height?: number
+          id?: number
+          material_type?: string
+          model?: string
+          panel_length?: string
+          section?: string
+          updated_at?: string | null
+          vent_type?: string | null
+          width?: number
+        }
+        Relationships: []
+      }
       glazing_panel_sizes: {
         Row: {
           created_at: string | null
@@ -743,6 +742,99 @@ export type Database = {
             referencedColumns: ["glazing_id"]
           },
         ]
+      }
+      glazing_requirements: {
+        Row: {
+          area_sq_ft: number | null
+          bay: string | null
+          eave_height: number
+          id: number
+          linear_ft: number | null
+          material_type: string
+          model: string
+          notes: string | null
+          panel_width: number | null
+          section: string
+          vent_type: string | null
+          width: number
+        }
+        Insert: {
+          area_sq_ft?: number | null
+          bay?: string | null
+          eave_height: number
+          id?: number
+          linear_ft?: number | null
+          material_type: string
+          model: string
+          notes?: string | null
+          panel_width?: number | null
+          section: string
+          vent_type?: string | null
+          width: number
+        }
+        Update: {
+          area_sq_ft?: number | null
+          bay?: string | null
+          eave_height?: number
+          id?: number
+          linear_ft?: number | null
+          material_type?: string
+          model?: string
+          notes?: string | null
+          panel_width?: number | null
+          section?: string
+          vent_type?: string | null
+          width?: number
+        }
+        Relationships: []
+      }
+      glazing_requirements_backup: {
+        Row: {
+          area_sq_ft: number | null
+          bay: string | null
+          eave_height: number | null
+          id: number | null
+          linear_ft: number | null
+          material_type: string | null
+          model: string | null
+          notes: string | null
+          panel_length: number | null
+          panel_width: number | null
+          section: string | null
+          vent_type: string | null
+          width: number | null
+        }
+        Insert: {
+          area_sq_ft?: number | null
+          bay?: string | null
+          eave_height?: number | null
+          id?: number | null
+          linear_ft?: number | null
+          material_type?: string | null
+          model?: string | null
+          notes?: string | null
+          panel_length?: number | null
+          panel_width?: number | null
+          section?: string | null
+          vent_type?: string | null
+          width?: number | null
+        }
+        Update: {
+          area_sq_ft?: number | null
+          bay?: string | null
+          eave_height?: number | null
+          id?: number | null
+          linear_ft?: number | null
+          material_type?: string | null
+          model?: string | null
+          notes?: string | null
+          panel_length?: number | null
+          panel_width?: number | null
+          section?: string | null
+          vent_type?: string | null
+          width?: number | null
+        }
+        Relationships: []
       }
       heating_calculations: {
         Row: {
@@ -984,6 +1076,44 @@ export type Database = {
         }
         Relationships: []
       }
+      project_glazing_config: {
+        Row: {
+          created_at: string | null
+          id: number
+          material_type: string
+          override: boolean | null
+          project_id: string | null
+          section: string
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: number
+          material_type: string
+          override?: boolean | null
+          project_id?: string | null
+          section: string
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: number
+          material_type?: string
+          override?: boolean | null
+          project_id?: string | null
+          section?: string
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "project_glazing_config_project_id_fkey"
+            columns: ["project_id"]
+            isOneToOne: false
+            referencedRelation: "projects"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       project_shares: {
         Row: {
           created_at: string | null
@@ -1066,6 +1196,27 @@ export type Database = {
             referencedColumns: ["entry_id"]
           },
         ]
+      }
+      projects: {
+        Row: {
+          created_at: string | null
+          id: string
+          name: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          id?: string
+          name?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          id?: string
+          name?: string | null
+          updated_at?: string | null
+        }
+        Relationships: []
       }
       rollup_drop_drives: {
         Row: {
@@ -1290,10 +1441,6 @@ export type Database = {
       }
       structures: {
         Row: {
-          a_bays?: number | null
-          b_bays?: number | null
-          c_bays?: number | null
-          d_bays?: number | null
           covering_endwalls: string | null
           covering_gables: string | null
           covering_roof: string | null
@@ -1319,10 +1466,6 @@ export type Database = {
           zones: number
         }
         Insert: {
-          a_bays?: number | null
-          b_bays?: number | null
-          c_bays?: number | null
-          d_bays?: number | null
           covering_endwalls?: string | null
           covering_gables?: string | null
           covering_roof?: string | null
@@ -1348,10 +1491,6 @@ export type Database = {
           zones: number
         }
         Update: {
-          a_bays?: number | null
-          b_bays?: number | null
-          c_bays?: number | null
-          d_bays?: number | null
           covering_endwalls?: string | null
           covering_gables?: string | null
           covering_roof?: string | null
