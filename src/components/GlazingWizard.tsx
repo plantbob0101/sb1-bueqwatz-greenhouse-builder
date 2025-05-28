@@ -4,6 +4,14 @@ import { supabase } from '../lib/supabase';
 import { Button } from './Button.tsx'; // Explicitly added .tsx extension
 import type { Database } from '../types/supabase'; // Added import for Supabase types
 
+// Define RIGID_MATERIALS_CONFIG outside the component for a stable reference
+const RIGID_MATERIALS_CONFIG: Record<string, number> = {
+  'PC8': 2,
+  'PC80%': 2,
+  'CPC': 3,
+  'GR7': 4,
+};
+
 // Define row type based on Supabase schema
 type GlazingRequirementRow = Database['public']['Tables']['glazing_requirements']['Row'];
 
@@ -74,6 +82,16 @@ interface MaterialOption {
   label: string;
 }
 
+interface CalculatedPanelInfo {
+  id: string; // Unique ID for React key, e.g., 'roof-slope-1'
+  displayName: string; // User-friendly name, e.g., "Main Roof Slope (House 1)"
+  panelLength: string | null; // As fetched from DB, e.g., "115 9/16\""
+  panelQuantity: number | null;
+  materialType: string | null;
+  sectionNameDb: string; // For querying, e.g., "Roof"
+  ventTypeDb: string; // For querying, e.g., "Non-Vented"
+}
+
 // Removed GlazingRequirementItemFromDB as it's not directly used after refactor, Supabase types will be inferred or defined as needed.
 
 export function GlazingWizard({
@@ -82,6 +100,7 @@ export function GlazingWizard({
   width,
   eaveHeight,
   length,
+  numHouses,
   aBays: initialABays, // Renaming for clarity
   bBays: initialBBays,
   cBays: initialCBays,
@@ -94,6 +113,7 @@ export function GlazingWizard({
   width: number;
   eaveHeight: number;
   length: number;
+  numHouses: number;
   aBays: number | string;
   bBays: number | string;
   cBays: number | string;
@@ -110,6 +130,8 @@ export function GlazingWizard({
   const [debugInfo, setDebugInfo] = useState<DebugInfo | null>(null);
   const [materialOptions, setMaterialOptions] = useState<MaterialOption[]>([]);
   const [baySpecificDetails, setBaySpecificDetails] = useState<BaySpecificDetail[]>([]);
+  const [calculatedPanelData, setCalculatedPanelData] = useState<CalculatedPanelInfo[]>([]);
+  const [loadingPanelData, setLoadingPanelData] = useState<boolean>(false);
 
   // Helper component for structured debug display
   const DebugDisplaySection: React.FC<{ title: string; data: Record<string, any>; fields: Array<{key: string; label: string; unit?: string}> }> = ({ title, data, fields }) => {
@@ -261,308 +283,437 @@ export function GlazingWizard({
       const normalizedModelValue = dbQueryModelName; // USE THE NEW DB QUERY NAME
 
       // Determine DB vent_type from prop
-      let dbVentType: string | undefined = undefined;
-      if (initialRoofVentConfig) {
-        if (initialRoofVentConfig === 'Non-Vented') dbVentType = 'non-vented';
-        else if (initialRoofVentConfig === 'Single Vent') dbVentType = 'single';
-        else if (initialRoofVentConfig === 'Double Vent') dbVentType = 'double';
-      }
+      // let dbVentType: string | undefined = undefined;
+      // if (initialRoofVentConfig) {
+      //   if (initialRoofVentConfig === 'Non-Vented') dbVentType = 'non-vented';
+      //   else if (initialRoofVentConfig === 'Single Vent') dbVentType = 'single';
+      //   else if (initialRoofVentConfig === 'Double Vent') dbVentType = 'double';
+      // }
 
       // Helper to build and execute query for a given bay
       const fetchBayData = async (bayChar: 'A' | 'B' | 'C' | 'D', bayLabel: string) => {
-        let query = supabase
-          .from('glazing_requirements')
-          .select('*')
-          .eq('model', normalizedModelValue)
-          .eq('width', width)
-          .eq('eave_height', eaveHeight)
-          .eq('section', 'roof') // Added section filter
-          .eq('material_type', roofMaterial) // Added material_type filter
-          .like('bay', `%${bayChar}%`);
+        // This log already exists and is good.
+        console.log(`Querying for ${bayLabel}: model='${normalizedModelValue}', width='${width}', eaveHeight='${eaveHeight}', section='Roof', bay='${bayChar}', material_type='${roofMaterial}'`);
+        
+        try {
+          let query = supabase
+            .from('glazing_requirements')
+            .select('*')
+            .eq('model', normalizedModelValue)
+            .eq('width', width)
+            .eq('eave_height', eaveHeight)
+            .eq('section', 'Roof') // Changed to 'Roof' (capitalized)
+            .eq('bay', bayChar)
+            .eq('material_type', roofMaterial);
 
-        if (dbVentType) {
-          query = query.eq('vent_type', dbVentType); // Conditionally add vent_type filter
-        }
+          const { data, error } = await query;
 
-        const { data: bayResults, error } = await query;
-
-        const queryCriteriaMsg = `model=${normalizedModelValue}, w=${width}, eh=${eaveHeight}, sec=roof, mat=${roofMaterial}${dbVentType ? ', vt=' + dbVentType : ''}, bay LIKE %${bayChar}% (array)`;
-
-        if (error) {
-          console.error(`Supabase error fetching ${bayLabel} bay data:`, error);
-          currentDebugInfo.dbMessages?.push(`${bayLabel} Bay Query Error: ${error.message} | Criteria: ${queryCriteriaMsg}`);
-          throw new Error(`Failed to fetch ${bayLabel} bay data: ${error.message}`);
-        }
-        currentDebugInfo.dbMessages?.push(`${bayLabel} Bay Query: ${queryCriteriaMsg}`);
-
-        let bayDataRow: GlazingRequirementRow | null = null;
-        if (bayResults && bayResults.length > 0) {
-          bayDataRow = bayResults[0];
-          if (bayResults.length > 1) {
-            currentDebugInfo.dbMessages?.push(`Warning: Multiple ${bayLabel} bay records found for specific criteria (${bayResults.length} found). Using the first one.`);
-            console.warn(`GW: Multiple ${bayLabel} bay records found for ${queryCriteriaMsg} (${bayResults.length} found). Using first one.`);
+          if (error) {
+            console.error(`Supabase error fetching ${bayLabel} data for material ${roofMaterial}:`, error.message, error); // Log full error object
+            currentDebugInfo.dbMessages?.push(`Error fetching ${bayLabel} data: ${error.message}`);
+            throw new Error(`Failed to fetch ${bayLabel} data: ${error.message}`);
+          } else {
+            console.log(`Data received for ${bayLabel} (material: ${roofMaterial}):`, JSON.stringify(data, null, 2)); // Log received data
+            if (data && data.length > 0) {
+              if (data[0].area_sq_ft !== null && data[0].area_sq_ft !== undefined) {
+                currentDebugInfo.bayAreas[`area${bayChar}`] = parseFloat(String(data[0].area_sq_ft));
+                currentDebugInfo.bayAreas[`area${bayChar}Source`] = 'DB';
+              } else {
+                currentDebugInfo.bayAreas[`area${bayChar}`] = 0;
+                currentDebugInfo.bayAreas[`area${bayChar}Source`] = 'DB (area is null/undefined)';
+              }
+            } else {
+              currentDebugInfo.bayAreas[`area${bayChar}`] = 0;
+              currentDebugInfo.bayAreas[`area${bayChar}Source`] = 'Not found in DB';
+            }
           }
-        } else {
-          currentDebugInfo.dbMessages?.push(`No ${bayLabel} bay data found for specific criteria.`);
+        } catch (e: any) {
+          console.error(`Critical error in fetchBayData for ${bayLabel} (material: ${roofMaterial}):`, e);
+          currentDebugInfo.dbMessages?.push(`Critical error fetching ${bayLabel} data: ${e.message}`);
+          throw new Error(`Critical error fetching ${bayLabel} data: ${e.message}`);
         }
-        return bayDataRow;
       };
 
       try {
-        const aData = await fetchBayData('A', 'A');
-        if (aData) {
-          const areaValue = parseFloatWithFallback(aData.area_sq_ft, 0);
-          currentDebugInfo.bayAreas.areaA = areaValue;
-          currentDebugInfo.bayAreas.areaASource = `DB (bay: ${aData.bay || 'A'}, material: ${aData.material_type || 'unknown'}, area: ${areaValue})`;
-          currentDebugInfo.dbMessages?.push(`Found A data: Area=${areaValue}, Source=${currentDebugInfo.bayAreas.areaASource}`);
-        } else {
-          currentDebugInfo.bayAreas.areaASource = 'Not found in DB (specific criteria)';
-        }
-
-        const bData = await fetchBayData('B', 'B');
-        if (bData) {
-          const areaValue = parseFloatWithFallback(bData.area_sq_ft, 0);
-          currentDebugInfo.bayAreas.areaB = areaValue;
-          currentDebugInfo.bayAreas.areaBSource = `DB (bay: ${bData.bay || 'B'}, material: ${bData.material_type || 'unknown'}, area: ${areaValue})`;
-          currentDebugInfo.dbMessages?.push(`Found B data: Area=${areaValue}, Source=${currentDebugInfo.bayAreas.areaBSource}`);
-        } else {
-          currentDebugInfo.bayAreas.areaBSource = 'Not found in DB (specific criteria)';
-        }
-
-        const cData = await fetchBayData('C', 'C');
-        if (cData) {
-          const areaValue = parseFloatWithFallback(cData.area_sq_ft, 0);
-          currentDebugInfo.bayAreas.areaC = areaValue;
-          currentDebugInfo.bayAreas.areaCSource = `DB (bay: ${cData.bay || 'C'}, material: ${cData.material_type || 'unknown'}, area: ${areaValue})`;
-          currentDebugInfo.dbMessages?.push(`Found C data: Area=${areaValue}, Source=${currentDebugInfo.bayAreas.areaCSource}`);
-        } else {
-          currentDebugInfo.bayAreas.areaCSource = 'Not found in DB (specific criteria)';
-        }
-
-        const dData = await fetchBayData('D', 'D');
-        if (dData) {
-          const areaValue = parseFloatWithFallback(dData.area_sq_ft, 0);
-          currentDebugInfo.bayAreas.areaD = areaValue;
-          currentDebugInfo.bayAreas.areaDSource = `DB (bay: ${dData.bay || 'D'}, material: ${dData.material_type || 'unknown'}, area: ${areaValue})`;
-          currentDebugInfo.dbMessages?.push(`Found D data: Area=${areaValue}, Source=${currentDebugInfo.bayAreas.areaDSource}`);
-        } else {
-          currentDebugInfo.bayAreas.areaDSource = 'Not found in DB (specific criteria)';
-        }
-
-        // Calculations
-        const aBaysContribution = numABays * currentDebugInfo.bayAreas.areaA;
-        const bBaysContribution = numBBays * currentDebugInfo.bayAreas.areaB;
-        const cBaysContribution = numCBays * currentDebugInfo.bayAreas.areaC;
-        const dBaysContribution = numDBays * currentDebugInfo.bayAreas.areaD;
-        const totalRoofArea = aBaysContribution + bBaysContribution + cBaysContribution + dBaysContribution;
-
-        currentDebugInfo.calculations = {
-          numABays,
-          numBBays,
-          numCBays,
-          numDBays,
-          roofArea: totalRoofArea,
-          bayAreaBreakdown: {
-            aBaysContribution,
-            bBaysContribution,
-            cBaysContribution,
-            dBaysContribution,
-          },
-        };
-
-        setBaySpecificDetails([
-          { bayType: 'A Bay', count: numABays, area: currentDebugInfo.bayAreas.areaA, source: currentDebugInfo.bayAreas.areaASource, totalArea: aBaysContribution },
-          { bayType: 'B Bay', count: numBBays, area: currentDebugInfo.bayAreas.areaB, source: currentDebugInfo.bayAreas.areaBSource, totalArea: bBaysContribution },
-          { bayType: 'C Bay', count: numCBays, area: currentDebugInfo.bayAreas.areaC, source: currentDebugInfo.bayAreas.areaCSource, totalArea: cBaysContribution },
-          { bayType: 'D Bay', count: numDBays, area: currentDebugInfo.bayAreas.areaD, source: currentDebugInfo.bayAreas.areaDSource, totalArea: dBaysContribution },
+        await Promise.all([
+          fetchBayData('A', 'Bay A'),
+          fetchBayData('B', 'Bay B'),
+          fetchBayData('C', 'Bay C'),
+          fetchBayData('D', 'Bay D'),
         ]);
-
-        const initialGlazingSections: GlazingSection[] = [
-          {
-            section: 'Roof Glazing',
-            material: roofMaterial, // Comes from prop roofGlazingType, managed by state roofMaterial
-            area: totalRoofArea,
-            unit: 'sq ft',
-            price: 0,
-            total: 0,
-            editable: true,
-          },
-        ];
-        setSections(initialGlazingSections);
-
-        // Fetch Material Options from distinct material_type in glazing_requirements
-        const { data: materialData, error: materialError } = await supabase
-          .from('glazing_requirements')
-          .select('material_type', { count: 'exact', head: false }) // Select distinct material_type
-          .neq('material_type', ''); // Ensure material_type is not empty
-
-        if (materialError) throw new Error(`Failed to fetch material options: ${materialError.message}`);
-        currentDebugInfo.dbMessages?.push('Fetched material types from glazing_requirements.');
-        
-        if (materialData && Array.isArray(materialData)) {
-          // Filter out null or undefined material_types and create unique options
-          const uniqueMaterialTypes = [
-            ...new Set(materialData
-              .map((item: Pick<GlazingRequirementRow, 'material_type'>) => item.material_type)
-              .filter((material): material is string => typeof material === 'string' && material.trim() !== '')),
-          ];
-          setMaterialOptions(uniqueMaterialTypes.map((m) => ({ value: m, label: m })));
-          currentDebugInfo.dbMessages?.push(`Material options populated: ${uniqueMaterialTypes.join(', ')}`);
-        } else {
-          currentDebugInfo.dbMessages?.push('No material data found or data is not an array.');
-          setMaterialOptions([]); // Set to empty array if no data
-        }
-
-        setDebugInfo(currentDebugInfo);
-
-      } catch (innerError: any) { 
-        console.error("GW: Error during specific bay data fetching, calculations, or material options:", innerError);
-        currentDebugInfo.dbMessages?.push(`Error during data processing sequence: ${innerError.message}`);
-        throw innerError; 
+      } catch (overallError: any) { // Typed overallError as any
+        console.error("Error in fetchGlazingRequirements Promise.all execution:", overallError);
+        currentDebugInfo.dbMessages?.push(`Error in Promise.all execution: ${overallError.message}`);
+        throw new Error(`Error in Promise.all execution: ${overallError.message}`);
       }
 
-    } catch (error: any) { 
-      // Ensure the full error object is logged if the error happens outside specific bay fetches
-      console.error("GW: Overall error in fetchGlazingRequirements:", error, "Message:", error?.message);
-      setError(`Failed to load glazing information: ${error?.message || 'Unknown error'}`);
+      // Calculations
+      const aBaysContribution = numABays * currentDebugInfo.bayAreas.areaA;
+      const bBaysContribution = numBBays * currentDebugInfo.bayAreas.areaB;
+      const cBaysContribution = numCBays * currentDebugInfo.bayAreas.areaC;
+      const dBaysContribution = numDBays * currentDebugInfo.bayAreas.areaD;
+      const totalRoofArea = aBaysContribution + bBaysContribution + cBaysContribution + dBaysContribution;
+
+      currentDebugInfo.calculations = {
+        numABays,
+        numBBays,
+        numCBays,
+        numDBays,
+        roofArea: totalRoofArea,
+        bayAreaBreakdown: {
+          aBaysContribution,
+          bBaysContribution,
+          cBaysContribution,
+          dBaysContribution,
+        },
+      };
+
+      setBaySpecificDetails([
+        { bayType: 'A Bay', count: numABays, area: currentDebugInfo.bayAreas.areaA, source: currentDebugInfo.bayAreas.areaASource, totalArea: aBaysContribution },
+        { bayType: 'B Bay', count: numBBays, area: currentDebugInfo.bayAreas.areaB, source: currentDebugInfo.bayAreas.areaBSource, totalArea: bBaysContribution },
+        { bayType: 'C Bay', count: numCBays, area: currentDebugInfo.bayAreas.areaC, source: currentDebugInfo.bayAreas.areaCSource, totalArea: cBaysContribution },
+        { bayType: 'D Bay', count: numDBays, area: currentDebugInfo.bayAreas.areaD, source: currentDebugInfo.bayAreas.areaDSource, totalArea: dBaysContribution },
+      ]);
+
+      const initialGlazingSections: GlazingSection[] = [
+        {
+          section: 'Roof Glazing',
+          material: roofMaterial, // Comes from prop roofGlazingType, managed by state roofMaterial
+          area: totalRoofArea,
+          unit: 'sq ft',
+          price: 0,
+          total: 0,
+          editable: true,
+        },
+      ];
+      setSections(initialGlazingSections);
+
+      // Fetch Material Options from distinct material_type in glazing_requirements
+      const { data: materialData, error: materialError } = await supabase
+        .from('glazing_requirements')
+        .select('material_type', { count: 'exact', head: false }) // Select distinct material_type
+        .neq('material_type', ''); // Ensure material_type is not empty
+
+      if (materialError) throw new Error(`Failed to fetch material options: ${materialError.message}`);
+      currentDebugInfo.dbMessages?.push('Fetched material types from glazing_requirements.');
+      
+      if (materialData && Array.isArray(materialData)) {
+        // Filter out null or undefined material_types and create unique options
+        const uniqueMaterialTypes = [
+          ...new Set(materialData
+            .map((item: Pick<GlazingRequirementRow, 'material_type'>) => item.material_type)
+            .filter((material): material is string => typeof material === 'string' && material.trim() !== '')),
+        ];
+        setMaterialOptions(uniqueMaterialTypes.map((m) => ({ value: m, label: m })));
+        currentDebugInfo.dbMessages?.push(`Material options populated: ${uniqueMaterialTypes.join(', ')}`);
+      } else {
+        currentDebugInfo.dbMessages?.push('No material data found or data is not an array.');
+        setMaterialOptions([]); // Set to empty array if no data
+      }
+
+      setDebugInfo(currentDebugInfo);
+
+    } catch (processingError: any) { // Renamed from innerError, this is the main catch for the outer try block
+      console.error("GW: Error during data processing sequence:", processingError);
+      currentDebugInfo.dbMessages?.push(`Error during data processing sequence: ${processingError.message}`);
+      setError(`Failed to load glazing information: ${processingError?.message || 'Unknown error'}`);
+      setDebugInfo(currentDebugInfo); // Ensure debug info with error messages is set
+      // Do not re-throw here, let finally execute
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ projectId, model, width, eaveHeight, length, numABays, numBBays, numCBays, numDBays, roofGlazingType, initialRoofVentConfig, supabase, roofMaterial ]);
-    // Removed many state setters from dependency array as they are stable or would cause loops.
-    // supabase client is stable. numXBay values are calculated from props and stable per render cycle where props don't change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ 
+    projectId, model, width, eaveHeight, length, 
+    initialABays, initialBBays, initialCBays, initialDBays, 
+    roofGlazingType, initialRoofVentConfig, supabase, roofMaterial
+    // State setters like setLoading, setError, etc., are stable and don't need to be in deps
+    // numXBay values are derived inside the callback from initialXBay props
+  ]);
+  // Removed many state setters from dependency array as they are stable or would cause loops.
+  // supabase client is stable. numXBay values are calculated from props and stable per render cycle where props don't change.
 
-    useEffect(() => {
-      console.log('GW: useEffect for fetchGlazingRequirements RUNNING');
-      fetchGlazingRequirements();
-    }, [fetchGlazingRequirements]);
+  useEffect(() => {
+    console.log('GW: useEffect for fetchGlazingRequirements RUNNING');
+    fetchGlazingRequirements();
+  }, [fetchGlazingRequirements]);
 
-    const handleMaterialChange = (idx: number, newMaterial: string) => {
-      const updatedSections = sections.map((s, i) => i === idx ? { ...s, material: newMaterial } : s);
-      setSections(updatedSections);
+  const handleMaterialChange = (idx: number, newMaterial: string) => {
+    const updatedSections = sections.map((s, i) => i === idx ? { ...s, material: newMaterial } : s);
+    setSections(updatedSections);
+  };
+
+  const handleRoofMaterialChange = (newMaterial: string) => {
+    setRoofMaterial(newMaterial);
+    // This will also trigger a re-fetch if roofMaterial is in fetchGlazingRequirements deps
+    // or update sections directly if preferred
+    const updatedSections = sections.map(s => s.section === 'Roof Glazing' ? { ...s, material: newMaterial } : s);
+    setSections(updatedSections);
+  };
+
+  useEffect(() => {
+    const fetchAndCalculatePanelData = async () => {
+      // Use formData.roofGlazingType for dynamic material selection by user
+      if (!model || !width || !eaveHeight || !length || !roofMaterial || !initialRoofVentConfig || numHouses <= 0) {
+        setCalculatedPanelData([]);
+        return;
+      }
+
+      const materialMultiplier = RIGID_MATERIALS_CONFIG[roofMaterial]; // Use formData.roofGlazingType
+      if (!materialMultiplier) {
+        setCalculatedPanelData([]);
+        return;
+      }
+
+      setLoadingPanelData(true);
+      const panelInfoPromises: Promise<CalculatedPanelInfo | null>[] = [];
+      const sectionsForProcessing: Omit<CalculatedPanelInfo, 'panelLength' | 'panelQuantity'>[] = [];
+
+      // Determine sections based on vent config and number of houses
+      switch (initialRoofVentConfig) {
+        case 'Non-Vented':
+          for (let i = 0; i < numHouses * 2; i++) {
+            sectionsForProcessing.push({
+              id: `non-vented-roof-${i + 1}`,
+              displayName: `Roof Slope ${i + 1}`,
+              materialType: roofMaterial,
+              sectionNameDb: 'Roof',
+              ventTypeDb: 'Non-Vented',
+            });
+          }
+          break;
+        case 'Single Vent':
+          for (let i = 0; i < numHouses; i++) {
+            sectionsForProcessing.push(
+              {
+                id: `sv-non-vent-slope-${i + 1}`,
+                displayName: `House ${i + 1} - Roof Non-Vent Slope`,
+                materialType: roofMaterial,
+                sectionNameDb: 'Roof Non-Vent Slope',
+                ventTypeDb: 'Single Vent',
+              },
+              {
+                id: `sv-vent-slope-${i + 1}`,
+                displayName: `House ${i + 1} - Roof Vent Slope`,
+                materialType: roofMaterial,
+                sectionNameDb: 'Roof Vent Slope',
+                ventTypeDb: 'Single Vent',
+              },
+              {
+                id: `sv-vent-${i + 1}`,
+                displayName: `House ${i + 1} - Roof Vent`,
+                materialType: roofMaterial,
+                sectionNameDb: 'Roof Vent',
+                ventTypeDb: 'Single Vent',
+              }
+            );
+          }
+          break;
+        case 'Double Vent':
+          for (let i = 0; i < numHouses * 2; i++) {
+            sectionsForProcessing.push(
+              {
+                id: `dv-vent-slope-${i + 1}`,
+                displayName: `Vent Slope ${i + 1}`,
+                materialType: roofMaterial,
+                sectionNameDb: 'Roof Vent Slope',
+                ventTypeDb: 'Double Vent',
+              },
+              {
+                id: `dv-vent-${i + 1}`,
+                displayName: `Vent Area ${i + 1}`,
+                materialType: roofMaterial,
+                sectionNameDb: 'Roof Vent',
+                ventTypeDb: 'Double Vent',
+              }
+            );
+          }
+          break;
+        default:
+          setCalculatedPanelData([]);
+          setLoadingPanelData(false);
+          return;
+      }
+
+      for (const section of sectionsForProcessing) {
+        panelInfoPromises.push(
+          (async (): Promise<CalculatedPanelInfo | null> => {
+            try {
+              // TEMPORARY FIX: Map 'SL18' to 'Solar Light' for database query
+              const queryModel = model === 'SL18' ? 'Solar Light' : model;
+
+              // Log the parameters being used for the query
+              console.log('Querying glazing_panel_requirements with:', {
+                model: queryModel, // Use the mapped model
+                width,
+                eaveHeight,
+                sectionNameDb: section.sectionNameDb,
+                ventTypeDb: section.ventTypeDb,
+                roofMaterial,
+              });
+
+              const { data: panelReqData, error: panelReqError } = await supabase
+                .from('glazing_panel_requirements')
+                .select('panel_length') // Corrected column name
+                .eq('model', queryModel) // Use the mapped model
+                .eq('width', width)
+                .eq('eave_height', eaveHeight)
+                .eq('section', section.sectionNameDb)
+                .eq('vent_type', section.ventTypeDb)
+                .eq('material_type', roofMaterial)
+                .single();
+
+              if (panelReqError) {
+                console.error(`Error fetching panel length for ${section.displayName}:`, panelReqError);
+                return { ...section, panelLength: 'Error', panelQuantity: null };
+              }
+              
+              const panelLength = panelReqData?.panel_length as string || 'Not found'; // Corrected property access
+              const panelQuantity = (length / 12) * materialMultiplier;
+
+              return {
+                ...section,
+                panelLength,
+                panelQuantity,
+              };
+            } catch (e) {
+              console.error(`Exception fetching panel length for ${section.displayName}:`, e);
+              return { ...section, panelLength: 'Error', panelQuantity: null };
+            }
+          })()
+        );
+      }
+
+      const resolvedPanelData = (await Promise.all(panelInfoPromises)).filter(p => p !== null) as CalculatedPanelInfo[];
+      setCalculatedPanelData(resolvedPanelData);
+      setLoadingPanelData(false);
     };
 
-    const handleRoofMaterialChange = (newMaterial: string) => {
-      setRoofMaterial(newMaterial);
-      // This will also trigger a re-fetch if roofMaterial is in fetchGlazingRequirements deps
-      // or update sections directly if preferred
-      const updatedSections = sections.map(s => s.section === 'Roof Glazing' ? { ...s, material: newMaterial } : s);
-      setSections(updatedSections);
-    };
+    fetchAndCalculatePanelData();
+  // Dependencies: Ensure all props used in the effect are listed
+  }, [model, width, eaveHeight, length, numHouses, initialRoofVentConfig, roofMaterial]); 
 
-    if (loading) {
-      console.log('GW: Rendering loading state');
-      return <div className="p-4 text-gray-200">Loading glazing information...</div>;
-    }
-    
-    if (error) {
-      return <div className="p-4 text-red-500">Error: {error}</div>;
-    }
 
-    console.log('GW: Rendering main component content (loading is false)');
+  if (loading) {
+    console.log('GW: Rendering loading state');
+    return <div className="p-4 text-gray-200">Loading glazing information...</div>;
+  }
+  
+  if (error) {
+    return <div className="p-4 text-red-500">Error: {error}</div>;
+  }
 
-    return (
-      <div className="space-y-4">
-        <div className="flex justify-end space-x-2">
-          <Button variant="outline" onClick={() => setShowBayDetails(!showBayDetails)}>{showBayDetails ? 'Hide' : 'Show'} Bay Details</Button>
-          <Button variant="outline" onClick={() => setShowDebug(!showDebug)}>{showDebug ? 'Hide' : 'Show'} Debug</Button>
-        </div>
+  console.log('GW: Rendering main component content (loading is false)');
 
-        {showDebug && debugInfo && (
-          <Card>
-            <CardHeader>Debug Information</CardHeader>
-            <CardContent className="space-y-6 text-xs">
-              <p className="text-sm text-gray-400 -mt-3 mb-1">Detailed debugging information for glazing calculations.</p>
-              {debugInfo.inputValues && <DebugDisplaySection title="Input Values" data={debugInfo.inputValues} fields={inputFields} />}
-              {debugInfo.calculations && <DebugDisplaySection title="Calculations" data={debugInfo.calculations} fields={calculationFields} />}
-              {debugInfo.bayAreas && <DebugDisplaySection title="Bay Area Details (from DB/Defaults)" data={debugInfo.bayAreas} fields={bayAreaFields} />}
-              {debugInfo.dbMessages && debugInfo.dbMessages.length > 0 && (
-                <div>
-                  <h4 className="font-semibold text-base text-emerald-400 mb-2 mt-1">Database Log</h4>
-                  <ul className="list-disc list-inside pl-2 text-gray-300">
-                    {debugInfo.dbMessages.map((msg, idx) => <li key={idx}>{msg}</li>)}
-                  </ul>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        )}
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end space-x-2">
+        <Button variant="outline" onClick={() => setShowBayDetails(!showBayDetails)}>{showBayDetails ? 'Hide' : 'Show'} Bay Details</Button>
+        <Button variant="outline" onClick={() => setShowDebug(!showDebug)}>{showDebug ? 'Hide' : 'Show'} Debug</Button>
+      </div>
 
-        {showBayDetails && baySpecificDetails.length > 0 && (
-          <Card>
-            <CardHeader>Bay-Specific Details</CardHeader>
-            <CardContent>
-              <table className="min-w-full divide-y divide-gray-700">
-                <thead>
-                  <tr>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Bay Type</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Count</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Area (sq ft)</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Source</th>
-                    <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Total Area</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-800">
-                  {baySpecificDetails.map((detail) => (
-                    <tr key={detail.bayType}>
-                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.bayType}</td>
-                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.count}</td>
-                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.area.toFixed(2)}</td>
-                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200 max-w-xs truncate" title={detail.source}>{detail.source}</td>
-                      <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.totalArea.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </CardContent>
-          </Card>
-        )}
-
+      {showDebug && debugInfo && (
         <Card>
-          <CardHeader>Glazing Sections</CardHeader>
+          <CardHeader>Debug Information</CardHeader>
+          <CardContent className="space-y-6 text-xs">
+            <p className="text-sm text-gray-400 -mt-3 mb-1">Detailed debugging information for glazing calculations.</p>
+            {debugInfo.inputValues && <DebugDisplaySection title="Input Values" data={debugInfo.inputValues} fields={inputFields} />}
+            {debugInfo.calculations && <DebugDisplaySection title="Calculations" data={debugInfo.calculations} fields={calculationFields} />}
+            {debugInfo.bayAreas && <DebugDisplaySection title="Bay Area Details (from DB/Defaults)" data={debugInfo.bayAreas} fields={bayAreaFields} />}
+            {debugInfo.dbMessages && debugInfo.dbMessages.length > 0 && (
+              <div>
+                <h4 className="font-semibold text-base text-emerald-400 mb-2 mt-1">Database Log</h4>
+                <ul className="list-disc list-inside pl-2 text-gray-300">
+                  {debugInfo.dbMessages.map((msg, idx) => <li key={idx}>{msg}</li>)}
+                </ul>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {showBayDetails && baySpecificDetails.length > 0 && (
+        <Card>
+          <CardHeader>Bay-Specific Details</CardHeader>
           <CardContent>
             <table className="min-w-full divide-y divide-gray-700">
               <thead>
                 <tr>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Section</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Material</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Bay Type</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Count</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Area (sq ft)</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Source</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Total Area</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {sections.map((section, idx) => (
-                  <tr key={idx}>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{section.section}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm">
-                      {section.section === 'Roof Glazing' ? (
-                        <select 
-                          value={roofMaterial} 
-                          onChange={(e) => handleRoofMaterialChange(e.target.value)}
-                          className="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block w-full p-1.5"
-                        >
-                          {materialOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                        </select>
-                      ) : (
-                        <select 
-                          value={section.material} 
-                          onChange={(e) => handleMaterialChange(idx, e.target.value)}
-                          className="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block w-full p-1.5"
-                          disabled={!section.editable}
-                        >
-                          {materialOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-                        </select>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{section.area.toFixed(2)}</td>
+                {baySpecificDetails.map((detail) => (
+                  <tr key={detail.bayType}>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.bayType}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.count}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.area.toFixed(2)}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200 max-w-xs truncate" title={detail.source}>{detail.source}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.totalArea.toFixed(2)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </CardContent>
         </Card>
-      </div>
-    );
-  }
+      )}
 
-  export default GlazingWizard;
+      <Card>
+        <CardHeader>Glazing Sections</CardHeader>
+        <CardContent>
+          {loading ? (
+            <p className="text-gray-300">Loading sections...</p>
+          ) : sections.length > 0 ? (
+            <div className="space-y-3">
+              {sections.map((section, idx) => (
+                <div key={idx} className="grid grid-cols-3 items-center gap-2 p-2 bg-gray-700 rounded">
+                  <span className="text-sm text-gray-200 col-span-1 truncate" title={section.section}>{section.section}</span>
+                  <div className="col-span-1">
+                    <select 
+                      value={section.material} 
+                      onChange={(e) => handleMaterialChange(idx, e.target.value)}
+                      className="bg-gray-700 border border-gray-600 text-white text-sm rounded-lg focus:ring-emerald-500 focus:border-emerald-500 block w-full p-1.5"
+                    >
+                      {materialOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    </select>
+                  </div>
+                  <span className="text-sm text-gray-200 col-span-1 text-right">
+                    {section.area ? `${section.area.toFixed(2)} sq ft` : 'N/A'}
+                  </span>
+                </div>
+              ))}
+              {calculatedPanelData.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-600">
+                  <h5 className="text-sm font-semibold text-emerald-300 mb-2">Panel Details (Rigid Materials):</h5>
+                  {loadingPanelData ? (
+                    <p className="text-gray-300">Calculating panel details...</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {calculatedPanelData.map((panel) => (
+                        <li key={panel.id} className="p-2 bg-gray-650 rounded-md">
+                          <p className="text-sm font-medium text-white">{panel.displayName}</p>
+                          <p className="text-xs text-gray-300">Material: {panel.materialType}</p>
+                          <p className="text-xs text-gray-300">Panel Length: {panel.panelLength}</p>
+                          <p className="text-xs text-gray-300">Panel Quantity: {panel.panelQuantity !== null ? panel.panelQuantity : 'N/A'}</p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-gray-400">No glazing sections defined or calculable.</p>
+          )}
+        </CardContent>
+      </Card>
+
+    </div>
+  );
+}
+
+export default GlazingWizard;
