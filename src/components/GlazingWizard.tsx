@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { Card, CardHeader, CardContent } from './Card';
-import { supabase } from '../lib/supabase';
+import { supabase, getPanelLength } from '../lib/supabase'; // Import getPanelLength
 import { Button } from './Button.tsx'; // Explicitly added .tsx extension
 import type { Database } from '../types/supabase'; // Added import for Supabase types
 
@@ -10,6 +10,14 @@ const RIGID_MATERIALS_CONFIG: Record<string, number> = {
   'PC80%': 2,
   'CPC': 3,
   'GR7': 4,
+};
+
+// Panel widths in inches
+const PANEL_WIDTHS_INCHES: Record<string, number> = {
+  'PC8': 71.25,
+  'CPC': 48,
+  'GR7': 36,
+  // Add other materials if necessary
 };
 
 // Define row type based on Supabase schema
@@ -75,6 +83,12 @@ interface BaySpecificDetail {
   area: number;
   source: string;
   totalArea: number;
+  modelDb: string | null;
+  sectionDb: string | null;
+  ventTypeDb: string | null;
+  materialDb: string | null;
+  widthDb: number | null;
+  eaveHeightDb: number | null;
 }
 
 interface MaterialOption {
@@ -132,6 +146,7 @@ export function GlazingWizard({
   const [baySpecificDetails, setBaySpecificDetails] = useState<BaySpecificDetail[]>([]);
   const [calculatedPanelData, setCalculatedPanelData] = useState<CalculatedPanelInfo[]>([]);
   const [loadingPanelData, setLoadingPanelData] = useState<boolean>(false);
+  const [totalPanelsByArea, setTotalPanelsByArea] = useState<number | null>(null); // State for the new panel total
 
   // Helper component for structured debug display
   const DebugDisplaySection: React.FC<{ title: string; data: Record<string, any>; fields: Array<{key: string; label: string; unit?: string}> }> = ({ title, data, fields }) => {
@@ -295,10 +310,16 @@ export function GlazingWizard({
         // This log already exists and is good.
         console.log(`Querying for ${bayLabel}: model='${normalizedModelValue}', width='${width}', eaveHeight='${eaveHeight}', section='Roof', bay='${bayChar}', material_type='${roofMaterial}'`);
         
+        let area = 0;
+        let source = 'Default';
+        let ventTypeDb: string | null = null;
+        let widthDb: number | null = null;
+        let eaveHeightDb: number | null = null;
+
         try {
           let query = supabase
             .from('glazing_requirements')
-            .select('*')
+            .select('area_sq_ft, vent_type, model, section, material_type, width, eave_height') // Select additional fields
             .eq('model', normalizedModelValue)
             .eq('width', width)
             .eq('eave_height', eaveHeight)
@@ -311,47 +332,85 @@ export function GlazingWizard({
           if (error) {
             console.error(`Supabase error fetching ${bayLabel} data for material ${roofMaterial}:`, error.message, error); // Log full error object
             currentDebugInfo.dbMessages?.push(`Error fetching ${bayLabel} data: ${error.message}`);
-            throw new Error(`Failed to fetch ${bayLabel} data: ${error.message}`);
+            // Do not throw here, allow Promise.all to handle individual failures if needed
+            // or ensure a default/error state is returned
+            source = `DB Error: ${error.message}`;
           } else {
             console.log(`Data received for ${bayLabel} (material: ${roofMaterial}):`, JSON.stringify(data, null, 2)); // Log received data
             if (data && data.length > 0) {
-              if (data[0].area_sq_ft !== null && data[0].area_sq_ft !== undefined) {
-                currentDebugInfo.bayAreas[`area${bayChar}`] = parseFloat(String(data[0].area_sq_ft));
-                currentDebugInfo.bayAreas[`area${bayChar}Source`] = 'DB';
+              const record = data[0];
+              ventTypeDb = record.vent_type; // Capture vent_type
+              widthDb = record.width; // Capture width
+              eaveHeightDb = record.eave_height; // Capture eave_height
+              if (record.area_sq_ft !== null && record.area_sq_ft !== undefined) {
+                area = parseFloat(String(record.area_sq_ft));
+                source = 'DB';
               } else {
-                currentDebugInfo.bayAreas[`area${bayChar}`] = 0;
-                currentDebugInfo.bayAreas[`area${bayChar}Source`] = 'DB (area is null/undefined)';
+                area = 0;
+                source = 'DB (area is null/undefined)';
               }
             } else {
-              currentDebugInfo.bayAreas[`area${bayChar}`] = 0;
-              currentDebugInfo.bayAreas[`area${bayChar}Source`] = 'Not found in DB';
+              area = 0;
+              source = 'Not found in DB';
             }
           }
         } catch (e: any) {
           console.error(`Critical error in fetchBayData for ${bayLabel} (material: ${roofMaterial}):`, e);
           currentDebugInfo.dbMessages?.push(`Critical error fetching ${bayLabel} data: ${e.message}`);
-          throw new Error(`Critical error fetching ${bayLabel} data: ${e.message}`);
+          source = `Critical Error: ${e.message}`;
+          // Do not re-throw here to allow Promise.all to complete
         }
+        // Update debug info directly here for simplicity in this step
+        currentDebugInfo.bayAreas[`area${bayChar}`] = area;
+        currentDebugInfo.bayAreas[`area${bayChar}Source`] = source;
+
+        return { area, source, ventTypeDb, widthDb, eaveHeightDb }; // Return captured details
+      };
+
+      // Store results from fetchBayData calls
+      const bayDataResults = {
+        A: { area: 0, source: 'Default', ventTypeDb: null as string | null, widthDb: null as number | null, eaveHeightDb: null as number | null },
+        B: { area: 0, source: 'Default', ventTypeDb: null as string | null, widthDb: null as number | null, eaveHeightDb: null as number | null },
+        C: { area: 0, source: 'Default', ventTypeDb: null as string | null, widthDb: null as number | null, eaveHeightDb: null as number | null },
+        D: { area: 0, source: 'Default', ventTypeDb: null as string | null, widthDb: null as number | null, eaveHeightDb: null as number | null },
       };
 
       try {
-        await Promise.all([
+        const results = await Promise.allSettled([
           fetchBayData('A', 'Bay A'),
           fetchBayData('B', 'Bay B'),
           fetchBayData('C', 'Bay C'),
           fetchBayData('D', 'Bay D'),
         ]);
-      } catch (overallError: any) { // Typed overallError as any
-        console.error("Error in fetchGlazingRequirements Promise.all execution:", overallError);
-        currentDebugInfo.dbMessages?.push(`Error in Promise.all execution: ${overallError.message}`);
-        throw new Error(`Error in Promise.all execution: ${overallError.message}`);
+
+        results.forEach((result, index) => {
+          const bayKey = ['A', 'B', 'C', 'D'][index] as 'A' | 'B' | 'C' | 'D';
+          if (result.status === 'fulfilled') {
+            bayDataResults[bayKey] = result.value;
+            // Update debugInfo with fulfilled data
+            currentDebugInfo.bayAreas[`area${bayKey}`] = result.value.area;
+            currentDebugInfo.bayAreas[`area${bayKey}Source`] = result.value.source;
+          } else {
+            // Handle rejected promise (error already logged in fetchBayData)
+            // Ensure debugInfo reflects the error source from fetchBayData's catch block
+            console.error(`Promise for Bay ${bayKey} rejected:`, result.reason);
+            currentDebugInfo.dbMessages?.push(`Promise for Bay ${bayKey} failed: ${result.reason?.message || 'Unknown error'}`);
+            // bayDataResults[bayKey] will retain default error values or can be updated
+            bayDataResults[bayKey].source = result.reason?.message || 'Promise rejected';
+          }
+        });
+
+      } catch (overallError: any) { // Should not be reached if using Promise.allSettled correctly
+        console.error("Error in fetchGlazingRequirements Promise.allSettled execution:", overallError);
+        currentDebugInfo.dbMessages?.push(`Error in Promise.allSettled: ${overallError.message}`);
+        // Set error state for all bays if this somehow triggers
       }
 
-      // Calculations
-      const aBaysContribution = numABays * currentDebugInfo.bayAreas.areaA;
-      const bBaysContribution = numBBays * currentDebugInfo.bayAreas.areaB;
-      const cBaysContribution = numCBays * currentDebugInfo.bayAreas.areaC;
-      const dBaysContribution = numDBays * currentDebugInfo.bayAreas.areaD;
+      // Calculations using bayDataResults
+      const aBaysContribution = numABays * bayDataResults.A.area;
+      const bBaysContribution = numBBays * bayDataResults.B.area;
+      const cBaysContribution = numCBays * bayDataResults.C.area;
+      const dBaysContribution = numDBays * bayDataResults.D.area;
       const totalRoofArea = aBaysContribution + bBaysContribution + cBaysContribution + dBaysContribution;
 
       currentDebugInfo.calculations = {
@@ -369,10 +428,26 @@ export function GlazingWizard({
       };
 
       setBaySpecificDetails([
-        { bayType: 'A Bay', count: numABays, area: currentDebugInfo.bayAreas.areaA, source: currentDebugInfo.bayAreas.areaASource, totalArea: aBaysContribution },
-        { bayType: 'B Bay', count: numBBays, area: currentDebugInfo.bayAreas.areaB, source: currentDebugInfo.bayAreas.areaBSource, totalArea: bBaysContribution },
-        { bayType: 'C Bay', count: numCBays, area: currentDebugInfo.bayAreas.areaC, source: currentDebugInfo.bayAreas.areaCSource, totalArea: cBaysContribution },
-        { bayType: 'D Bay', count: numDBays, area: currentDebugInfo.bayAreas.areaD, source: currentDebugInfo.bayAreas.areaDSource, totalArea: dBaysContribution },
+        {
+          bayType: 'A Bay', count: numABays, area: bayDataResults.A.area, source: bayDataResults.A.source, totalArea: aBaysContribution,
+          modelDb: normalizedModelValue, sectionDb: 'Roof', ventTypeDb: bayDataResults.A.ventTypeDb, materialDb: roofMaterial,
+          widthDb: bayDataResults.A.widthDb, eaveHeightDb: bayDataResults.A.eaveHeightDb
+        },
+        {
+          bayType: 'B Bay', count: numBBays, area: bayDataResults.B.area, source: bayDataResults.B.source, totalArea: bBaysContribution,
+          modelDb: normalizedModelValue, sectionDb: 'Roof', ventTypeDb: bayDataResults.B.ventTypeDb, materialDb: roofMaterial,
+          widthDb: bayDataResults.B.widthDb, eaveHeightDb: bayDataResults.B.eaveHeightDb
+        },
+        {
+          bayType: 'C Bay', count: numCBays, area: bayDataResults.C.area, source: bayDataResults.C.source, totalArea: cBaysContribution,
+          modelDb: normalizedModelValue, sectionDb: 'Roof', ventTypeDb: bayDataResults.C.ventTypeDb, materialDb: roofMaterial,
+          widthDb: bayDataResults.C.widthDb, eaveHeightDb: bayDataResults.C.eaveHeightDb
+        },
+        {
+          bayType: 'D Bay', count: numDBays, area: bayDataResults.D.area, source: bayDataResults.D.source, totalArea: dBaysContribution,
+          modelDb: normalizedModelValue, sectionDb: 'Roof', ventTypeDb: bayDataResults.D.ventTypeDb, materialDb: roofMaterial,
+          widthDb: bayDataResults.D.widthDb, eaveHeightDb: bayDataResults.D.eaveHeightDb
+        },
       ]);
 
       const initialGlazingSections: GlazingSection[] = [
@@ -450,6 +525,102 @@ export function GlazingWizard({
     const updatedSections = sections.map(s => s.section === 'Roof Glazing' ? { ...s, material: newMaterial } : s);
     setSections(updatedSections);
   };
+
+  useEffect(() => {
+    const calculateTotalPanelsByArea = async () => {
+      if (baySpecificDetails.length === 0 || loading) {
+        setTotalPanelsByArea(null); // Reset if no details or still loading
+        return;
+      }
+
+      let cumulativePanels = 0;
+      let calculationErrors: string[] = [];
+
+      // Helper function to parse panel length strings like "115 9/16\"" to inches
+      const parsePanelLengthToInches = (lengthStr: string | null): number | null => {
+        if (!lengthStr) return null;
+        const cleanedStr = lengthStr.replace(/"/g, '').trim(); // Remove quotes and trim
+        let totalInches = 0;
+        const parts = cleanedStr.split(' '); // Split whole number and fraction
+
+        if (parts.length === 1) { // Only fraction or only whole number
+          if (parts[0].includes('/')) { // Fraction like "9/16"
+            const fractionParts = parts[0].split('/');
+            if (fractionParts.length === 2) {
+              totalInches = parseFloat(fractionParts[0]) / parseFloat(fractionParts[1]);
+            }
+          } else { // Whole number like "115"
+            totalInches = parseFloat(parts[0]);
+          }
+        } else if (parts.length === 2) { // Mixed number like "115 9/16"
+          totalInches = parseFloat(parts[0]); // Whole number part
+          if (parts[1].includes('/')) {
+            const fractionParts = parts[1].split('/');
+            if (fractionParts.length === 2) {
+              totalInches += parseFloat(fractionParts[0]) / parseFloat(fractionParts[1]);
+            }
+          }
+        }
+        return isNaN(totalInches) ? null : totalInches;
+      };
+
+      for (const bay of baySpecificDetails) {
+        if (bay.count > 0 && bay.area > 0 && bay.materialDb && bay.modelDb && bay.sectionDb && bay.widthDb !== null && bay.eaveHeightDb !== null) {// Skip bays with no count or no area
+        }
+
+        const panelWidthInches = PANEL_WIDTHS_INCHES[bay.materialDb!];
+        if (!panelWidthInches) {
+          const errorMsg = `Panel width not found for material: ${bay.materialDb} in bay ${bay.bayType}`;
+          console.warn(errorMsg);
+          calculationErrors.push(errorMsg);
+          continue;
+        }
+
+        const panelLengthRaw = await getPanelLength(
+          bay.modelDb!,
+          bay.sectionDb!,
+          bay.ventTypeDb, // This can be null
+          bay.materialDb!,
+          bay.widthDb!,
+          bay.eaveHeightDb!
+        );
+
+        const panelLengthInches = parsePanelLengthToInches(panelLengthRaw);
+
+        if (!panelLengthInches) {
+          console.warn(`Panel length not found or invalid for bay ${bay.bayType} (model: ${bay.modelDb}, section: ${bay.sectionDb}, vent: ${bay.ventTypeDb}, material: ${bay.materialDb}, width: ${bay.widthDb}, eave: ${bay.eaveHeightDb})`);
+          calculationErrors.push(`Panel length not found or invalid for bay ${bay.bayType}`);
+          continue;
+        }
+
+        const panelWidthFeet = panelWidthInches / 12;
+        const panelLengthFeet = panelLengthInches / 12;
+        const singlePanelAreaSqFt = panelWidthFeet * panelLengthFeet;
+
+        if (singlePanelAreaSqFt === 0) {
+          const errorMsg = `Single panel area is zero for bay ${bay.bayType}, check dimensions.`;
+          console.warn(errorMsg);
+          calculationErrors.push(errorMsg);
+          continue;
+        }
+
+        const panelsForThisBayTypeArea = bay.area / singlePanelAreaSqFt;
+        const totalPanelsForBay = bay.count * panelsForThisBayTypeArea;
+        cumulativePanels += totalPanelsForBay;
+      }
+
+      if (calculationErrors.length > 0) {
+        // Optionally, update UI to show these errors or a general error message
+        console.error('Errors during panel calculation by area:', calculationErrors);
+        // For now, we'll still set the calculated panels, but you might want to handle this differently
+      }
+      
+      setTotalPanelsByArea(cumulativePanels);
+    };
+
+    calculateTotalPanelsByArea();
+
+  }, [baySpecificDetails, loading]); // Dependencies: baySpecificDetails and loading
 
   useEffect(() => {
     const fetchAndCalculatePanelData = async () => {
@@ -711,6 +882,13 @@ export function GlazingWizard({
           )}
         </CardContent>
       </Card>
+
+      {totalPanelsByArea !== null && (
+        <div className="mt-6">
+          <h4 className="font-semibold text-base text-emerald-400 mb-2">Total Panels (Calculated by Bay Area):</h4>
+          <p className="text-lg text-gray-100">{totalPanelsByArea.toFixed(2)} panels</p>
+        </div>
+      )}
 
     </div>
   );
