@@ -84,7 +84,9 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
   const [editingRollupWall, setEditingRollupWall] = useState<any | null>(null);
   const [editingDropWall, setEditingDropWall] = useState<any | null>(null);
 
-  const GLAZING_TYPES = ['CPC', 'PC8', 'Poly'] as const;
+  const GLAZING_TYPES = ['CPC', 'PC8', 'Poly', 'PC80%', 'GR7'] as const;
+  
+  // Note: Database needs to be updated to allow all GLAZING_TYPES values
   
   const [rollupWallDrives, setRollupWallDrives] = useState<Record<string, any>>({});
 
@@ -188,10 +190,10 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
           width: structureData.structures?.width ?? 0,
 
           // New bay fields (allow undefined/null)
-          a_bays: structureData.structures?.a_bays,
-          b_bays: structureData.structures?.b_bays,
-          c_bays: structureData.structures?.c_bays,
-          d_bays: structureData.structures?.d_bays,
+          a_bays: (structureData.structures as any)?.a_bays,
+          b_bays: (structureData.structures as any)?.b_bays,
+          c_bays: (structureData.structures as any)?.c_bays,
+          d_bays: (structureData.structures as any)?.d_bays,
 
           // Fields from structure_user_entries table (direct access)
           project_name: structureData.project_name ?? '',
@@ -401,7 +403,7 @@ export default function ProjectDetails({ structureId, onBack, onDelete }: Projec
       // user_id is likely set on creation or via RLS, not typically updated here.
       // created_at is auto-managed.
       // gutter_connected is another field in supabase.ts (if screenshot is partial) if editable add it.
-    };
+    } as any;
 
     // Clean undefined properties (optional, Supabase client might handle it)
     Object.keys(userEntryUpdateData).forEach(key => {

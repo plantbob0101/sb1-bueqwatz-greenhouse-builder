@@ -371,6 +371,17 @@ export default function GlazingRequirementsTab() {
                     )}
                   </button>
                 </th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                  <button 
+                    onClick={() => handleSort('linear_ft')}
+                    className="flex items-center gap-1"
+                  >
+                    Linear Ft
+                    {sortColumn === 'linear_ft' && (
+                      sortDirection === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />
+                    )}
+                  </button>
+                </th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-400 uppercase tracking-wider">
                   Actions
                 </th>
@@ -379,7 +390,7 @@ export default function GlazingRequirementsTab() {
             <tbody className="divide-y divide-gray-700">
               {glazingRequirements.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-6 text-center text-gray-400">
+                  <td colSpan={11} className="px-4 py-6 text-center text-gray-400">
                     No glazing requirements found. Try adjusting your filters or add a new requirement.
                   </td>
                 </tr>
@@ -412,6 +423,9 @@ export default function GlazingRequirementsTab() {
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-sm text-white">
                       {item.area_sq_ft ?? '-'}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap text-sm text-white">
+                      {item.linear_ft ?? '-'}
                     </td>
                     <td className="px-4 py-3 whitespace-nowrap text-right text-sm font-medium">
                       <button
