@@ -89,6 +89,7 @@ interface BaySpecificDetail {
   materialDb: string | null;
   widthDb: number | null;
   eaveHeightDb: number | null;
+  unit: string; // Added to store 'sq ft' or 'linear ft'
 }
 
 interface MaterialOption {
@@ -151,6 +152,9 @@ export function GlazingWizard({
   // Helper component for structured debug display
   const DebugDisplaySection: React.FC<{ title: string; data: Record<string, any>; fields: Array<{key: string; label: string; unit?: string}> }> = ({ title, data, fields }) => {
     if (!data) return null;
+    // Access roofGlazingType from debugInfo if available, to determine units dynamically
+    const roofGlazingTypeForUnits = debugInfo?.inputValues?.roofGlazingType;
+
     return (
       <div className="mb-4">
         <h4 className="font-semibold text-base text-emerald-400 mb-2">{title}</h4>
@@ -167,20 +171,34 @@ export function GlazingWizard({
                     <span className="text-gray-400 pl-2">{`-> ${key}`}:</span>
                     <span className="text-gray-100">
                       {String(val)}
-                      {/* Add units if applicable for breakdown parts */}
+                      {/* Add units if applicable for breakdown parts - unit determined by roofGlazingTypeForUnits */}
+                      {roofGlazingTypeForUnits === 'GR7' ? ' linear ft' : ' sq ft'}
                     </span>
                   </React.Fragment>
                 ));
               }
               return null;
             }
+
+            let displayUnit = field.unit;
+            if (roofGlazingTypeForUnits === 'GR7') {
+              if (['areaA', 'areaB', 'areaC', 'areaD', 'roofArea'].includes(field.key)) {
+                displayUnit = 'linear ft';
+              }
+            } else {
+              // Ensure default 'sq ft' for non-GR7 if field.unit was generic
+              if (['areaA', 'areaB', 'areaC', 'areaD', 'roofArea'].includes(field.key)) {
+                displayUnit = 'sq ft';
+              }
+            }
+
             return (
               value !== undefined && value !== null ? (
                 <React.Fragment key={field.key}>
                   <span className="text-gray-400">{field.label}:</span>
                   <span className="text-gray-100">
                     {String(value)}
-                    {field.unit && <span className="text-gray-500 ml-1">{field.unit}</span>}
+                    {displayUnit && <span className="text-gray-500 ml-1">{displayUnit}</span>}
                   </span>
                 </React.Fragment>
               ) : null
@@ -312,6 +330,7 @@ export function GlazingWizard({
         
         let area = 0;
         let source = 'Default';
+        let unit = roofMaterial === 'GR7' ? 'linear ft' : 'sq ft'; // Determine unit based on material
         let ventTypeDb: string | null = null;
         let widthDb: number | null = null;
         let eaveHeightDb: number | null = null;
@@ -319,7 +338,7 @@ export function GlazingWizard({
         try {
           let query = supabase
             .from('glazing_requirements')
-            .select('area_sq_ft, vent_type, model, section, material_type, width, eave_height') // Select additional fields
+            .select('area_sq_ft, linear_ft, vent_type, model, section, material_type, width, eave_height') // Added linear_ft
             .eq('model', normalizedModelValue)
             .eq('width', width)
             .eq('eave_height', eaveHeight)
@@ -342,16 +361,30 @@ export function GlazingWizard({
               ventTypeDb = record.vent_type; // Capture vent_type
               widthDb = record.width; // Capture width
               eaveHeightDb = record.eave_height; // Capture eave_height
-              if (record.area_sq_ft !== null && record.area_sq_ft !== undefined) {
-                area = parseFloat(String(record.area_sq_ft));
-                source = 'DB';
+
+              if (roofMaterial === 'GR7') {
+                if (record.linear_ft !== null && record.linear_ft !== undefined) {
+                  area = parseFloat(String(record.linear_ft));
+                  source = 'DB (linear_ft)';
+                } else {
+                  area = 0;
+                  source = 'DB (linear_ft is null/undefined)';
+                }
+                // unit is already 'linear ft' for GR7
               } else {
-                area = 0;
-                source = 'DB (area is null/undefined)';
+                if (record.area_sq_ft !== null && record.area_sq_ft !== undefined) {
+                  area = parseFloat(String(record.area_sq_ft));
+                  source = 'DB (area_sq_ft)';
+                } else {
+                  area = 0;
+                  source = 'DB (area_sq_ft is null/undefined)';
+                }
+                // unit is already 'sq ft' for non-GR7
               }
             } else {
               area = 0;
               source = 'Not found in DB';
+              // unit remains as per initial material determination
             }
           }
         } catch (e: any) {
@@ -364,15 +397,16 @@ export function GlazingWizard({
         currentDebugInfo.bayAreas[`area${bayChar}`] = area;
         currentDebugInfo.bayAreas[`area${bayChar}Source`] = source;
 
-        return { area, source, ventTypeDb, widthDb, eaveHeightDb }; // Return captured details
+        return { area, source, ventTypeDb, widthDb, eaveHeightDb, unit }; // Return captured details including unit
       };
 
       // Store results from fetchBayData calls
+      const initialUnit = roofMaterial === 'GR7' ? 'linear ft' : 'sq ft';
       const bayDataResults = {
-        A: { area: 0, source: 'Default', ventTypeDb: null as string | null, widthDb: null as number | null, eaveHeightDb: null as number | null },
-        B: { area: 0, source: 'Default', ventTypeDb: null as string | null, widthDb: null as number | null, eaveHeightDb: null as number | null },
-        C: { area: 0, source: 'Default', ventTypeDb: null as string | null, widthDb: null as number | null, eaveHeightDb: null as number | null },
-        D: { area: 0, source: 'Default', ventTypeDb: null as string | null, widthDb: null as number | null, eaveHeightDb: null as number | null },
+        A: { area: 0, source: 'Default', ventTypeDb: null as string | null, widthDb: null as number | null, eaveHeightDb: null as number | null, unit: initialUnit },
+        B: { area: 0, source: 'Default', ventTypeDb: null as string | null, widthDb: null as number | null, eaveHeightDb: null as number | null, unit: initialUnit },
+        C: { area: 0, source: 'Default', ventTypeDb: null as string | null, widthDb: null as number | null, eaveHeightDb: null as number | null, unit: initialUnit },
+        D: { area: 0, source: 'Default', ventTypeDb: null as string | null, widthDb: null as number | null, eaveHeightDb: null as number | null, unit: initialUnit },
       };
 
       try {
@@ -427,35 +461,33 @@ export function GlazingWizard({
         },
       };
 
-      setBaySpecificDetails([
-        {
-          bayType: 'A Bay', count: numABays, area: bayDataResults.A.area, source: bayDataResults.A.source, totalArea: aBaysContribution,
-          modelDb: normalizedModelValue, sectionDb: 'Roof', ventTypeDb: bayDataResults.A.ventTypeDb, materialDb: roofMaterial,
-          widthDb: bayDataResults.A.widthDb, eaveHeightDb: bayDataResults.A.eaveHeightDb
-        },
-        {
-          bayType: 'B Bay', count: numBBays, area: bayDataResults.B.area, source: bayDataResults.B.source, totalArea: bBaysContribution,
-          modelDb: normalizedModelValue, sectionDb: 'Roof', ventTypeDb: bayDataResults.B.ventTypeDb, materialDb: roofMaterial,
-          widthDb: bayDataResults.B.widthDb, eaveHeightDb: bayDataResults.B.eaveHeightDb
-        },
-        {
-          bayType: 'C Bay', count: numCBays, area: bayDataResults.C.area, source: bayDataResults.C.source, totalArea: cBaysContribution,
-          modelDb: normalizedModelValue, sectionDb: 'Roof', ventTypeDb: bayDataResults.C.ventTypeDb, materialDb: roofMaterial,
-          widthDb: bayDataResults.C.widthDb, eaveHeightDb: bayDataResults.C.eaveHeightDb
-        },
-        {
-          bayType: 'D Bay', count: numDBays, area: bayDataResults.D.area, source: bayDataResults.D.source, totalArea: dBaysContribution,
-          modelDb: normalizedModelValue, sectionDb: 'Roof', ventTypeDb: bayDataResults.D.ventTypeDb, materialDb: roofMaterial,
-          widthDb: bayDataResults.D.widthDb, eaveHeightDb: bayDataResults.D.eaveHeightDb
-        },
-      ]);
+      const newBaySpecificDetails: BaySpecificDetail[] = [];
+      ['A', 'B', 'C', 'D'].forEach((bayKey) => {
+        const bayCount = bayKey === 'A' ? numABays : bayKey === 'B' ? numBBays : bayKey === 'C' ? numCBays : numDBays;
+        const newDetail: BaySpecificDetail = {
+          bayType: bayKey,
+          count: bayCount,
+          area: bayDataResults[bayKey].area,
+          source: bayDataResults[bayKey].source,
+          totalArea: bayDataResults[bayKey].area * bayCount,
+          modelDb: normalizedModelValue, // Assuming this is the model used for DB query
+          sectionDb: 'Roof',
+          ventTypeDb: bayDataResults[bayKey].ventTypeDb,
+          materialDb: roofMaterial,
+          widthDb: bayDataResults[bayKey].widthDb,
+          eaveHeightDb: bayDataResults[bayKey].eaveHeightDb,
+          unit: bayDataResults[bayKey].unit, // Assign unit here
+        };
+        newBaySpecificDetails.push(newDetail);
+      });
+      setBaySpecificDetails(newBaySpecificDetails);
 
       const initialGlazingSections: GlazingSection[] = [
         {
           section: 'Roof Glazing',
           material: roofMaterial, // Comes from prop roofGlazingType, managed by state roofMaterial
           area: totalRoofArea,
-          unit: 'sq ft',
+          unit: roofMaterial === 'GR7' ? 'linear ft' : 'sq ft', // Determine unit based on material
           price: 0,
           total: 0,
           editable: true,
@@ -812,19 +844,27 @@ export function GlazingWizard({
                 <tr>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Bay Type</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Count</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Area (sq ft)</th>
+                  {/* Dynamic header for Area column */}
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    AREA ({ (baySpecificDetails[0]?.unit || (roofMaterial === 'GR7' ? 'linear ft' : 'sq ft')).toUpperCase() })
+                  </th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Source</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">Total Area</th>
+                  {/* Dynamic header for Total Area column */}
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase tracking-wider">
+                    TOTAL ({ (baySpecificDetails[0]?.unit || (roofMaterial === 'GR7' ? 'linear ft' : 'sq ft')).toUpperCase() })
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
                 {baySpecificDetails.map((detail) => (
                   <tr key={detail.bayType}>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.bayType}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.bayType} Bay</td>
                     <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.count}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.area.toFixed(2)}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200 max-w-xs truncate" title={detail.source}>{detail.source}</td>
-                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.totalArea.toFixed(2)}</td>
+                    {/* Display area with unit */}
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.area.toFixed(2)} {detail.unit}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.source}</td>
+                    {/* Display total area with unit */}
+                    <td className="px-3 py-2 whitespace-nowrap text-sm text-gray-200">{detail.totalArea.toFixed(2)} {detail.unit}</td>
                   </tr>
                 ))}
               </tbody>
@@ -853,7 +893,7 @@ export function GlazingWizard({
                     </select>
                   </div>
                   <span className="text-sm text-gray-200 col-span-1 text-right">
-                    {section.area ? `${section.area.toFixed(2)} sq ft` : 'N/A'}
+                    {section.area ? `${section.area.toFixed(2)} ${section.unit}` : 'N/A'}
                   </span>
                 </div>
               ))}
